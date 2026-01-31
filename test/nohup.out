@@ -1,0 +1,86 @@
+2026-01-15 20:56:INFO:openmd.protocol.default:(0) Energy Minimization
+2026-01-15 20:57:INFO:openmd.protocol.default:(1) NVT (T= 10 K, posres_k=1000 kJ/mol/nm**2, dt=1 fs, t=100 ps)
+2026-01-15 20:57:INFO:openmd.unbiased:velocities set from a Maxwell-Boltzmann distribution at 10 K
+2026-01-15 20:57:INFO:openmd.unbiased:posres k= 1000.0 KJ/mol/nm^2
+2026-01-15 20:57:INFO:openmd.protocol.default:(2) NVT heating (T= 10-300.0 K, posres_k=1000 kJ/mol/nm**2, dt=1 fs, t=145 ps)
+2026-01-15 20:57:INFO:openmd.unbiased:velocities set from a Maxwell-Boltzmann distribution at 10 K
+2026-01-15 20:57:INFO:openmd.unbiased:posres k= 1000.0 KJ/mol/nm^2
+2026-01-15 20:58:INFO:openmd.protocol.default:(3) NPT restrained (T=300.0 K, posres_k=1000-0 kJ/mol/nm**2, dt=1 fs, t=500 ps)
+2026-01-15 20:58:INFO:openmd.unbiased:Barostat added
+2026-01-15 20:58:INFO:openmd.unbiased:velocities set from a Maxwell-Boltzmann distribution at 300.0 K
+2026-01-15 20:58:INFO:openmd.unbiased:posres k= 1000.0 KJ/mol/nm^2
+2026-01-15 20:58:INFO:openmd.unbiased:posres k= 980.0 KJ/mol/nm^2
+2026-01-15 20:58:INFO:openmd.unbiased:posres k= 960.0 KJ/mol/nm^2
+2026-01-15 20:58:INFO:openmd.unbiased:posres k= 940.0 KJ/mol/nm^2
+2026-01-15 20:58:INFO:openmd.unbiased:posres k= 920.0 KJ/mol/nm^2
+2026-01-15 20:58:INFO:openmd.unbiased:posres k= 900.0 KJ/mol/nm^2
+2026-01-15 20:58:INFO:openmd.unbiased:posres k= 880.0 KJ/mol/nm^2
+2026-01-15 20:58:INFO:openmd.unbiased:posres k= 860.0 KJ/mol/nm^2
+2026-01-15 20:58:INFO:openmd.unbiased:posres k= 840.0 KJ/mol/nm^2
+2026-01-15 20:59:INFO:openmd.unbiased:posres k= 820.0 KJ/mol/nm^2
+2026-01-15 20:59:INFO:openmd.unbiased:posres k= 800.0 KJ/mol/nm^2
+2026-01-15 20:59:INFO:openmd.unbiased:posres k= 780.0 KJ/mol/nm^2
+2026-01-15 20:59:INFO:openmd.unbiased:posres k= 760.0 KJ/mol/nm^2
+2026-01-15 20:59:INFO:openmd.unbiased:posres k= 740.0 KJ/mol/nm^2
+2026-01-15 20:59:INFO:openmd.unbiased:posres k= 720.0 KJ/mol/nm^2
+2026-01-15 20:59:INFO:openmd.unbiased:posres k= 700.0 KJ/mol/nm^2
+2026-01-15 20:59:INFO:openmd.unbiased:posres k= 680.0 KJ/mol/nm^2
+2026-01-15 20:59:INFO:openmd.unbiased:posres k= 660.0 KJ/mol/nm^2
+2026-01-15 20:59:INFO:openmd.unbiased:posres k= 640.0 KJ/mol/nm^2
+2026-01-15 20:59:INFO:openmd.unbiased:posres k= 620.0 KJ/mol/nm^2
+2026-01-15 20:59:INFO:openmd.unbiased:posres k= 600.0 KJ/mol/nm^2
+2026-01-15 20:59:INFO:openmd.unbiased:posres k= 580.0 KJ/mol/nm^2
+2026-01-15 20:59:INFO:openmd.unbiased:posres k= 560.0 KJ/mol/nm^2
+2026-01-15 20:59:INFO:openmd.unbiased:posres k= 540.0 KJ/mol/nm^2
+2026-01-15 20:59:INFO:openmd.unbiased:posres k= 520.0 KJ/mol/nm^2
+2026-01-15 21:00:INFO:openmd.unbiased:posres k= 500.0 KJ/mol/nm^2
+2026-01-15 21:00:INFO:openmd.unbiased:posres k= 480.0 KJ/mol/nm^2
+2026-01-15 21:00:INFO:openmd.unbiased:posres k= 460.0 KJ/mol/nm^2
+2026-01-15 21:00:INFO:openmd.unbiased:posres k= 440.0 KJ/mol/nm^2
+2026-01-15 21:00:INFO:openmd.unbiased:posres k= 420.0 KJ/mol/nm^2
+2026-01-15 21:00:INFO:openmd.unbiased:posres k= 400.0 KJ/mol/nm^2
+2026-01-15 21:00:INFO:openmd.unbiased:posres k= 380.0 KJ/mol/nm^2
+2026-01-15 21:00:INFO:openmd.unbiased:posres k= 360.0 KJ/mol/nm^2
+2026-01-15 21:00:INFO:openmd.unbiased:posres k= 340.0 KJ/mol/nm^2
+2026-01-15 21:00:INFO:openmd.unbiased:posres k= 320.0 KJ/mol/nm^2
+2026-01-15 21:00:INFO:openmd.unbiased:posres k= 300.0 KJ/mol/nm^2
+2026-01-15 21:00:INFO:openmd.unbiased:posres k= 280.0 KJ/mol/nm^2
+2026-01-15 21:00:INFO:openmd.unbiased:posres k= 260.0 KJ/mol/nm^2
+2026-01-15 21:00:INFO:openmd.unbiased:posres k= 240.0 KJ/mol/nm^2
+2026-01-15 21:00:INFO:openmd.unbiased:posres k= 220.0 KJ/mol/nm^2
+2026-01-15 21:00:INFO:openmd.unbiased:posres k= 200.0 KJ/mol/nm^2
+2026-01-15 21:01:INFO:openmd.unbiased:posres k= 180.0 KJ/mol/nm^2
+2026-01-15 21:01:INFO:openmd.unbiased:posres k= 160.0 KJ/mol/nm^2
+2026-01-15 21:01:INFO:openmd.unbiased:posres k= 140.0 KJ/mol/nm^2
+2026-01-15 21:01:INFO:openmd.unbiased:posres k= 120.0 KJ/mol/nm^2
+2026-01-15 21:01:INFO:openmd.unbiased:posres k= 100.0 KJ/mol/nm^2
+2026-01-15 21:01:INFO:openmd.unbiased:posres k= 80.0 KJ/mol/nm^2
+2026-01-15 21:01:INFO:openmd.unbiased:posres k= 60.0 KJ/mol/nm^2
+2026-01-15 21:01:INFO:openmd.unbiased:posres k= 40.0 KJ/mol/nm^2
+2026-01-15 21:01:INFO:openmd.unbiased:posres k= 20.0 KJ/mol/nm^2
+2026-01-15 21:01:INFO:openmd.unbiased:posres k= 0.0 KJ/mol/nm^2
+2026-01-15 21:01:INFO:openmd.protocol.default:(4) NPT unrestrained (T=300.0 K, posres_k=0 kJ/mol/nm**2, dt=1 fs, t=2000 ps)
+2026-01-15 21:01:INFO:openmd.unbiased:posres k= 0.0 KJ/mol/nm^2
+2026-01-15 21:13:INFO:openmd.protocol.default:(5) NPT production (T= 300.0 K, dt=2.0 fs, t=10.0 ns)
+2026-01-15 21:13:INFO:openmd.protocol.default:checkpoint interval 100 ps
+2026-01-15 21:13:INFO:openmd.protocol.default:trajectory interval 100 ps
+2026-01-15 21:13:INFO:openmd.protocol.default:trajectory frames 100
+2026-01-15 21:13:INFO:openmd.unbiased:Switching to HMR system for timestep of 4.0 fs
+2026-01-15 21:13:INFO:openmd.unbiased:Simulation re-created with HMR Atoms: 24769, Residues: 7552, Chains: 5, Constraints: 23363
+2026-01-15 21:13:INFO:openmd.unbiased:Force 0: HarmonicBondForce
+2026-01-15 21:13:INFO:openmd.unbiased:Force 1: PeriodicTorsionForce
+2026-01-15 21:13:INFO:openmd.unbiased:Force 2: NonbondedForce
+2026-01-15 21:13:INFO:openmd.unbiased:Force 3: CMMotionRemover
+2026-01-15 21:13:INFO:openmd.unbiased:Force 4: HarmonicAngleForce
+2026-01-15 21:14:INFO:openmd.unbiased:Energy minimization
+2026-01-15 21:14:INFO:openmd.unbiased:velocities set from a Maxwell-Boltzmann distribution at 300.0 K
+2026-01-15 21:14:INFO:openmd.unbiased:Barostat added
+2026-01-15 21:14:INFO:openmd.unbiased:Checkpoint saved to 2RAP_hmr.cpt
+Traceback (most recent call last):
+  File "/home2/shbae/bucket/openmd/test/test_md.py", line 4, in <module>
+    md.run()
+    ~~~~~~^^
+  File "/home2/shbae/miniforge3/envs/openmd/lib/python3.13/site-packages/openmd/protocol/default.py", line 284, in run
+    with open(workdir / f"{self.prefix}_final.pdb", "w") as f:
+              ~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+TypeError: unsupported operand type(s) for /: 'NoneType' and 'str'
