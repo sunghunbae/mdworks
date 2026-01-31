@@ -109,7 +109,7 @@ class ValidComplex:
         
         setup_logger(logger, self.parent, self.prefix, quiet=quiet)
 
-        logger.info(f"openmd {version('openmd')}")
+        logger.info(f"mdworks {version('mdworks')}")
         logger.info(f"pdbfixer {version('pdbfixer')}")
         logger.info(f"openmmforcefields {version('openmmforcefields')}")
         logger.info(f"openff-toolkit {version('openff-toolkit')}")

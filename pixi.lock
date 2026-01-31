@@ -3051,8 +3051,8 @@ packages:
   timestamp: 1733255681319
 - pypi: ./
   name: mdworks
-  version: 0.1.0
-  sha256: 14843f972a286bebfdff57898cb89db8c98e91839c268576e059c655a7eb0a65
+  version: 0.1.1
+  sha256: 94d6a313208f20b3b3b080351cb60d6b45cfb03a9ac8412992749410af325cb7
   requires_python: '>=3.11'
 - conda: https://conda.anaconda.org/conda-forge/noarch/mistune-3.2.0-pyhcf101f3_0.conda
   sha256: d3fb4beb5e0a52b6cc33852c558e077e1bfe44df1159eb98332d69a264b14bae

@@ -46,12 +46,12 @@ class Equilibrium(MultiStage):
             trajectory_interval (float, optional): trajectory interval time in ps. Defaults to 100.
             checkpoint_interval (float, optional): checkpoint interval time in ps. Defaults to 100.
         """
-        super().__init__(complex, workdir, platform, devices, quiet=quiet)
+        super().__init__(complex, workdir, platform, devices, quiet)
 
+        self.time = time * unit.nanoseconds
         self.hmr = hmr
         if hmr:
             timestep = 4.0
-        self.time = time * unit.nanoseconds
         self.timestep = timestep * unit.femtoseconds
         self.temperature = temperature * unit.kelvin
         self.pressure = pressure * unit.bar
@@ -76,8 +76,8 @@ class Equilibrium(MultiStage):
                 'interval': 1000 },
             {
                 'tag': '3_npt_posres',
-                'description': f'NPT 500 ps at {temperature} K with releasing positional restraints gradually',
-                't': (500., 1.0),
+                'description': f'NPT 300 ps at {temperature} K with releasing positional restraints gradually',
+                't': (300., 1.0),
                 'T': temperature,
                 'k': (1000., 0, -20),
                 'friction': 1,
@@ -85,8 +85,8 @@ class Equilibrium(MultiStage):
                 'interval': 1000 },
             {
                 'tag': '4_npt_free',
-                'description': f'NPT 1000 ps at {temperature} K without positional restraints',
-                't': (1000., 2.0),
+                'description': f'NPT 500 ps at {temperature} K without positional restraints',
+                't': (500., 2.0),
                 'T': temperature,
                 'k': 0.0,
                 'friction': 1,

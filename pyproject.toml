@@ -1,6 +1,6 @@
 [project]
 name = "mdworks"
-version = "0.1.0"
+version = "0.1.1"
 authors = [{name = "Sung-Hun Bae", email = "sunghun.bae@gmail.com"}]
 requires-python = ">= 3.11"
 dependencies = []
@@ -17,10 +17,6 @@ requires = ["hatchling"]
 channels = ["conda-forge"]
 platforms = ["linux-64"]
 preview = ["pixi-build"]
-
-[tool.pixi.package]
-name = "mdworks"
-version = "0.1.0"
 
 [tool.pixi.package.build.backend]
 name = "pixi-build-python"

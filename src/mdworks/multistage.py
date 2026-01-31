@@ -98,10 +98,10 @@ class MultiStage:
         self.integrator = None
         self.simulation = None
 
-        self.prefix = None
-        self.workdir = None
-
         self._set_platform(platform, devices)
+
+        self.workdir : Path | None = None
+        self.prefix : str | None = None
 
         if isinstance(workdir, str):
             self.workdir = Path(workdir)
@@ -109,6 +109,8 @@ class MultiStage:
         elif isinstance(workdir, Path):
             self.workdir = workdir
             self.workdir.mkdir(exist_ok=True)
+        else:
+            self.workdir = None
 
         if isinstance(complex, ValidComplex):
             self.prefix = complex.prefix
@@ -124,16 +126,22 @@ class MultiStage:
         elif isinstance(complex, Path) or isinstance(complex, str):
             if isinstance(complex, str):
                 complex = Path(complex)
-            self.prefix : str = complex.as_posix()
+            
+            self.prefix = complex.stem
+            
             if self.workdir is None:
                 self.workdir = complex.parent
+            
             if not self.load_system():
                 raise FileNotFoundError(".._system.xml file is required.")
+            
             if not self.load_complex():
                 raise FileNotFoundError(".._complex.pdb file is required.")
+            
             if not self.load_integrator():
                 self._create_integrator()
                 self.save_integrator()
+            
             self._create_simulation()
         
         elif isinstance(complex, TestSystem):
@@ -155,10 +163,14 @@ class MultiStage:
             filename = self.workdir / f"{self.prefix}_system_hmr.xml"
             with open(filename, "w") as f:
                 f.write(XmlSerializer.serialize(self.system_hmr))
-                logger.info(f"system_hmr saved - {self.workdir / f'{self.prefix}_system_hmr.xml'}")
-
         
         setup_logger(logger, self.workdir, self.prefix, quiet=quiet)
+
+        logger.info(f"mdworks {version('mdworks')}")
+        logger.info(f"openff-toolkit {version('openff-toolkit')}")
+        logger.info(f"OpenMM platform= {platform} devices= {devices}")
+        logger.info(f"workdir= {self.workdir}")
+        logger.info(f"prefix= {self.prefix}")
 
 
     def _add_posres(self, k: float = 1000.0) -> None:
