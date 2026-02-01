@@ -8,7 +8,7 @@ $ mamba create -n openmd python=3.13 cuda-version=13.x openmmforcefields pdbfixe
 
 ```py
 from openmd import ValidComplex
-from openmd.protocol import UDesmond
+from openmd.protocol import Equilibrium
 
 vc = ValidComplex('protein_ligand_complex.cif')
 
@@ -22,22 +22,22 @@ vc.assign_ligand_charges()
 vc.build_system()
 
 # run unbiased md emulating desmond protocol
-md = UDesmond(vc)
+md = Equilibrium(vc)
 md.run()
 ```
 
-## Multi-Stage MD Simulation
+## Multi-stage Equilibrium Protocol
 
-| Stage               | temp (K) | posres (kcal/mol/A**2) | time (ps) | timestep (fs) | 
-| ------------------- | -------- | ---------------------- | --------- | ------------- |
-| Energy Minimization |        | 50 |     |  |
-| NVT cold            | 10     | 50 | 100 | 1 |
-| NVT heating         | 10-300 | 10 | 12 | 2 |
-| NPT posres          | 300    | 2  | 12 | 2 |
-| NPT unrestrained    | 300    | 0  | 24 | 2 |
-| Production          | 300    | 0  | user | 2 |
+| Stage               | temperature (K) | posres (kJ/mol/nm**2) | friction (1/ps) | time (ps) | timestep (fs) | 
+| ------------------- | --------------- | --------------------- | --------------- | --------- | ------------- |
+| Energy Minimization |                 |                 1000  |                 |           |   |
+| NVT cold            | 10              |                 1000  |              5  |      100  | 1 |
+| NVT warm            | 10 -> 300       |                 1000  |              1  |      145  | 2 |
+| NPT posres          | 300             |            1000 -> 0  |              1  |      300  | 2 |
+| NPT free            | 300             |                    0  |              1  |      500  | 2 |
+| NPT production      | 300             |                    0  |              1  |     user  | 2 or 4 (HMR) |
 
-## Schrodinger Desmond Protocol
+## Desmond-like Equilibrium Protocol
 
 1. Energy Minimization
 1. Brownian Dynamics NVT, T = 10 K, small timesteps, and restraints on solute heavy atoms, 100ps, k=50
@@ -46,15 +46,21 @@ md.run()
 1. NPT and restraints on solute heavy atoms, 12ps, k=50
 1. NPT and no restraints, 24ps 
 
-| Stage               | temp (K) | posres (kcal/mol/A**2) | time (ps) | timestep (fs) | 
-| ------------------- | -------- | ---------------------- | --------- | ------------- |
-| Energy Minimization |          | 50 |      |   |
-| Brownian            | 10       | 50 | 100  | 1 |
-| NVT cold            | 10       | 50 | 12   | 2 | 
-| NPT cold            | 10       | 10 | 12   | 2 |
-| NPT annealing       | 10-300   | 2  | 12   | 2 |
-| NPT unrestrained    | 300      | 0  | 24   | 2 |
-| Production          | 300      | 0  | user | 2 |
+Notes: 
+
+- 50 kcal/mol/A**2 is equal to 20,920 kJ/mol/nm**2 (1 kcal/mol/A**2 = 418.4 kJ/mol/nm**2)
+- scale to the typically used positional restraint force constant (1000 kJ/mol/nm**2)
+
+
+| Stage               | temperature (K) | posres (kJ/mol/nm**2) | friction (1/ps) | time (ps) | timestep (fs) | 
+| ------------------- | --------------- | --------------------- | --------------- | --------- | ------------- |
+| Energy Minimization |                 |                 1000  |                 |           |   |
+| Brownian            | 10              |                 1000  |             50  |      100  | 1 |
+| NVT cold            | 10              |                 1000  |              1  |       12  | 2 | 
+| NPT cold            | 10              |                  200  |              1  |       12  | 2 |
+| NPT warm            | 10 -> 300       |                   40  |              1  |       12  | 2 |
+| NPT free            | 300             |                    0  |              1  |       24  | 2 |
+| NPT production      | 300             |                    0  |              1  |     user  | 2 or 4 (HMR) |
 
 
 ### Brownian MD
@@ -71,4 +77,3 @@ Brownian dynamics corresponds to:
     - Ion placement adjustment
     - Avoids solute distortion
     - Prevents pressure spikes later
-
