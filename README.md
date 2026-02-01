@@ -1,10 +1,37 @@
-## Install
+# Install
+
+## Pixi
 
 ```sh
-$ mamba create -n openmd python=3.13 cuda-version=13.x openmmforcefields pdbfixer openmm
+# Install pixi
+
+$ curl -fsSL https://pixi.sh/install.sh | sh
 ```
 
-## Usage
+Please check out [Pixi installation](https://pixi.prefix.dev/latest/installation/) for more details.
+
+## Mdworks
+
+```sh
+$ git clone https://github.com/sunghunbae/mdworks.git
+$ cd mdworks
+$ pixi install
+```
+
+# Jupyter Notebook
+
+1. Add `mdworks` environment to JupyterLab
+
+```sh
+python -m ipykernel install --user --name='mdworks'
+```
+
+2. Start the Jupyter lab
+```sh
+jupyter lab
+```
+
+# Usage
 
 ```py
 from openmd import ValidComplex
@@ -77,3 +104,4 @@ Brownian dynamics corresponds to:
     - Ion placement adjustment
     - Avoids solute distortion
     - Prevents pressure spikes later
+
