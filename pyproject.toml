@@ -1,6 +1,6 @@
 [project]
 name = "mdworks"
-version = "0.1.1"
+version = "0.2.0"
 authors = [{name = "Sung-Hun Bae", email = "sunghun.bae@gmail.com"}]
 requires-python = ">= 3.11"
 dependencies = []
@@ -31,6 +31,8 @@ ipykernel = ">=7.1.0,<8"
 biopython = ">=1.86,<2"
 openmmtools = ">=0.26.0,<0.27"
 cuda-version = "13.0.*"
+ambertools = { version = ">=24.8,<25", channel = "conda-forge" }
+compilers = { version = ">=1.11.0,<2", channel = "conda-forge" }
 
 [tool.pixi.pypi-dependencies]
 typer = ">=0.21.1, <0.22"

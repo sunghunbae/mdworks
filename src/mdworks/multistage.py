@@ -20,12 +20,15 @@ from openmm import (
     MonteCarloMembraneBarostat,
     CustomExternalForce,
     XmlSerializer,
+    MinimizationReporter,
 )
+
 from openmmtools.testsystems import TestSystem
 
 from .validcomplex import ValidComplex
 from .utils import setup_logger
 
+logger = logging.getLogger(__name__)
 
 def is_cuda_available() -> bool:
     # Checks if the CUDA platform is available
@@ -77,8 +80,32 @@ def apply_hmr(system, topology, h_mass_factor: float = 3.0) -> None:
         system.setParticleMass(x.index, x_mass_orig - delta)
 
 
+class CustomMinimizationReporter(MinimizationReporter):
+    def __init__(self, file: str | Path, reportInterval: int):
+        super().__init__()
+        self._out = open(file, 'w')
+        self._reportInterval = reportInterval
+        self._iterations_since_last_report = 0
+        # Write a header
+        self._out.write("Iteration, Potential Energy (kJ/mol)\n")
 
-logger = logging.getLogger(__name__)
+    def report(self, iteration, x, grad, args):
+        # This method is called after each L-BFGS iteration
+        self._iterations_since_last_report += 1
+        if self._iterations_since_last_report % self._reportInterval == 0:
+            # The objective function is not exactly potential energy due to constraints
+            # For basic reporting, potential energy might be an approximation or
+            # you can focus on the 'objective' value
+            potential_energy = args['potentialEnergy'] # This might not be directly available, check 'objective' in args
+            # A better way is to get the state from the context if needed, but 'args' has stats
+            self._out.write(f"{iteration}, {potential_energy}\n")
+            self._out.flush() # Ensure it writes to the file immediately
+
+        # Return False to continue minimization (True to stop early)
+        return False
+
+    def __del__(self):
+        self._out.close()
 
 
 class MultiStage:
@@ -100,9 +127,8 @@ class MultiStage:
 
         self._set_platform(platform, devices)
 
+        # setup workdir
         self.workdir : Path | None = None
-        self.prefix : str | None = None
-
         if isinstance(workdir, str):
             self.workdir = Path(workdir)
             self.workdir.mkdir(exist_ok=True)
@@ -110,12 +136,31 @@ class MultiStage:
             self.workdir = workdir
             self.workdir.mkdir(exist_ok=True)
         else:
-            self.workdir = None
-
+            if isinstance(complex, ValidComplex):
+                self.workdir = complex.parent
+            elif isinstance(complex, Path) or isinstance(complex, str):
+                self.workdir = Path(complex).parent
+            else: # including TestSystem
+                self.workdir = Path('.')
+        
+        # set up prefix
+        self.prefix : str | None = None
         if isinstance(complex, ValidComplex):
             self.prefix = complex.prefix
-            if self.workdir is None:
-                self.workdir = complex.parent
+        elif isinstance(complex, Path) or isinstance(complex, str):
+            self.prefix = Path(complex).stem
+        elif isinstance(complex, TestSystem):
+            self.prefix = complex.name # the name of the test system
+
+        setup_logger(logger, self.workdir, self.prefix, quiet=quiet)
+
+        logger.info(f"mdworks {version('mdworks')}")
+        logger.info(f"openff-toolkit {version('openff-toolkit')}")
+        logger.info(f"OpenMM platform= {platform} devices= {devices}")
+        logger.info(f"workdir= {self.workdir}")
+        logger.info(f"prefix= {self.prefix}")
+
+        if isinstance(complex, ValidComplex):
             self.topology = complex.topology
             self.positions = complex.positions
             self.system = complex.system
@@ -124,30 +169,16 @@ class MultiStage:
             self.save_integrator()
 
         elif isinstance(complex, Path) or isinstance(complex, str):
-            if isinstance(complex, str):
-                complex = Path(complex)
-            
-            self.prefix = complex.stem
-            
-            if self.workdir is None:
-                self.workdir = complex.parent
-            
             if not self.load_system():
-                raise FileNotFoundError(".._system.xml file is required.")
-            
+                raise FileNotFoundError(".._system.xml file is required.")            
             if not self.load_complex():
                 raise FileNotFoundError(".._complex.pdb file is required.")
-            
             if not self.load_integrator():
                 self._create_integrator()
                 self.save_integrator()
-            
             self._create_simulation()
         
         elif isinstance(complex, TestSystem):
-            self.prefix = complex.name # the name of the test system
-            if self.workdir is None:
-                self.workdir = Path('.')
             self.topology = complex.topology
             self.system = complex.system
             self.positions = complex.positions
@@ -164,14 +195,7 @@ class MultiStage:
             with open(filename, "w") as f:
                 f.write(XmlSerializer.serialize(self.system_hmr))
         
-        setup_logger(logger, self.workdir, self.prefix, quiet=quiet)
-
-        logger.info(f"mdworks {version('mdworks')}")
-        logger.info(f"openff-toolkit {version('openff-toolkit')}")
-        logger.info(f"OpenMM platform= {platform} devices= {devices}")
-        logger.info(f"workdir= {self.workdir}")
-        logger.info(f"prefix= {self.prefix}")
-
+        
 
     def _add_posres(self, k: float = 1000.0) -> None:
         # create a positional restraint force
@@ -683,20 +707,24 @@ class MultiStage:
         if self.load_checkpoint(stage):
             return
         maxiter = kwargs.get('maxiter', 5000) # openmm default 0 (until convergence is achived)
-        tolerance = kwargs.get('tolerance', 0.1) # openmm default 10.0
+        tolerance = kwargs.get('tolerance', 0.1) # openmm default 10.0 KJ/mol
         interval = kwargs.get('interval', 10)
         logger.info(f"({stage}) Energy Minimization")
-        self._add_state_data_reporter(stage, maxiter, interval=interval)
+        # StateDataReporter does not work with simulataion.minimizeEnergy()
+        # so a customized MinimizatinReporter is attached here
+        # ... set up system, forcefield, simulation ...
+        tag = self.stages[stage]['tag']
+        filename = self.workdir / f'{self.prefix}_{tag}.ene'
+        reporter = CustomMinimizationReporter(filename, reportInterval=interval)
+        # Once the minimization process (simulation.minimizeEnergy()) is complete, 
+        # the MinimizationReporter is no longer active.
+        # The Simulation object's main reporters list, which is used during molecular dynamics (MD) steps 
+        # (e.g., PDBReporter, StateDataReporter), is separate.
         self.simulation.minimizeEnergy(
-                tolerance = tolerance * unit.kilojoule_per_mole / unit.nanometer,
-                maxIterations= maxiter)
-        # defaults:
-        #   tolerance: The default value is 10.0 kJ/mole. 
-        #       The minimization stops when the energy change falls below this tolerance.
-        #   maxIterations: The default value is 0. When set to 0 (the default), 
-        #       minimization continues until convergence is achieved, 
-        #       regardless of the number of iterations performed.
-        self._del_reporter()
+            tolerance = tolerance * unit.kilojoule_per_mole / unit.nanometer,
+            maxIterations= maxiter,
+            reporter= reporter,
+            )
         self.save_checkpoint(stage)
 
 

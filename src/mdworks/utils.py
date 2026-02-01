@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 def setup_logger(logger: logging.Logger, 
-                 parent: Path, 
+                 workdir: Path, 
                  prefix: Path, 
                  quiet: bool = False) -> None:
     
@@ -21,7 +21,7 @@ def setup_logger(logger: logging.Logger,
     stdout_stream_handler.setFormatter(logger_format)
 
     # file handler
-    logging_file_handler = logging.FileHandler(parent / f"{prefix}.log")
+    logging_file_handler = logging.FileHandler(workdir / f"{prefix}.log")
     logging_file_handler.setLevel(logging.DEBUG)
     logging_file_handler.setFormatter(logger_format)
     
