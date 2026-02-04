@@ -97,7 +97,7 @@ class CustomMinimizationReporter(MinimizationReporter):
             # The objective function is not exactly potential energy due to constraints
             # For basic reporting, potential energy might be an approximation or
             # you can focus on the 'objective' value
-            potential_energy = args['potentialEnergy'] # This might not be directly available, check 'objective' in args
+            potential_energy = args['system energy'] # This might not be directly available, check 'objective' in args
             # A better way is to get the state from the context if needed, but 'args' has stats
             self._out.write(f"{iteration}, {potential_energy}\n")
             self._out.flush() # Ensure it writes to the file immediately

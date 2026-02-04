@@ -1,6 +1,6 @@
 [project]
 name = "mdworks"
-version = "0.2.0"
+version = "0.3.2"
 authors = [{name = "Sung-Hun Bae", email = "sunghun.bae@gmail.com"}]
 requires-python = ">= 3.11"
 dependencies = []

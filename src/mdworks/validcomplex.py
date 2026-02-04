@@ -60,6 +60,7 @@ class ValidComplex(SimFileIO):
     
     def __init__(self, 
                  in_file: str | Path,
+                 workdir: Path | str | None = None,
                  remove_solvent: bool = True,
                  pH: float = 7.0, 
                  max_displacement: float = 0.5,
@@ -76,12 +77,17 @@ class ValidComplex(SimFileIO):
             k (float, optional): force constant during restrained optimization. Defaults to 1000.0.
             max_iter (int, optional): max number of iteration in restrained optimization. Defaults to 500.
         """
-        if isinstance(in_file, Path):
-            in_file = in_file.as_posix()
+        assert isinstance(in_file, str) or isinstance(in_file, Path)
+        assert Path(in_file).exists()
 
-        self.in_file : str = in_file
-        self.parent : Path = Path(in_file).parent
-        self.prefix : str = Path(in_file).stem
+        # setup prefix and workdir
+        self.prefix = Path(in_file).stem
+        if isinstance(workdir, str) or isinstance(workdir, Path):
+            self.workdir = Path(workdir)
+            self.workdir.mkdir(exist_ok=True)
+        else:
+            self.workdir = Path(in_file).parent
+
         self.mem_protein : io.StringIO = io.StringIO()
         self.mem_ligand : io.StringIO = io.StringIO()
         self.mem_ligand_charges: io.StringIO = io.StringIO()
@@ -116,6 +122,8 @@ class ValidComplex(SimFileIO):
         logger.info(f"openff-toolkit {version('openff-toolkit')}")
         logger.info(f"rdkit {version('rdkit')}")
         logger.info(f"scipy {version('scipy')}")
+        logger.info(f"workdir= {self.workdir}")
+        logger.info(f"prefix= {self.prefix}")
 
         self._add_missing_atoms()
         self._sort_protein_and_ligand_residues()
