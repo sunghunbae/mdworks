@@ -18,7 +18,7 @@ $ cd mdworks
 $ pixi install
 ```
 
-# Jupyter Notebook
+## Jupyter Notebook
 
 1. Add `mdworks` environment to JupyterLab
 
@@ -48,7 +48,7 @@ vc.assign_ligand_charges()
 # build openmm system
 vc.build_system()
 
-# run unbiased md emulating desmond protocol
+# run multi-stage equilibrium MD simulations
 md = Equilibrium(vc)
 md.run()
 ```
