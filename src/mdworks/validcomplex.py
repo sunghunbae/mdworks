@@ -24,13 +24,14 @@ try:
 except ImportError:
     raise ImportError("install openmm, openmmforcefields, pdbfixer, and openff-toolkit from conda-forge.\n")
 
+from .simfileio import SimFileIO
 from .utils import setup_logger
 
 
 logger = logging.getLogger(__name__)
 
 
-class ValidComplex:
+class ValidComplex(SimFileIO):
     """Class for preparing valid protein/ligand complex structure.
     
     Issues with OpenFold3 and OpenEye Spruce
@@ -515,59 +516,6 @@ class ValidComplex:
         else:
             off_mol = Molecule.from_rdkit(self.rdmolH)
             off_mol.to_file(filename, file_format='sdf')
-
-    
-    def save_complex(self) -> None:
-        """Save the fixed protein to a PDB file.
-
-        Returns:
-            None
-        """
-        filename = self.parent / f'{self.prefix}_complex.pdb'
-        with open(filename, "w") as f:
-            app.PDBFile.writeFile(
-                self.topology,
-                self.positions,
-                f,
-                keepIds=True
-            )
-
-
-    def load_complex(self) -> bool:
-        filename = self.parent / f'{self.prefix}_complex.pdb'
-        if not filename.exists():
-            return False
-        
-        pdb = app.PDBFile(filename.as_posix())
-
-        self.topology = pdb.topology
-        self.positions = pdb.positions
-
-        return True
-    
-
-    def save_system(self, hmr: bool = False) -> None:
-        # system contains positional restraints (CustomExternalForce)
-        if hmr:
-            filename = self.parent / f"{self.prefix}_system_hmr.xml"
-            with open(filename, "w") as f:
-                f.write(XmlSerializer.serialize(self.system_hmr))
-        else:
-            filename = self.parent / f"{self.prefix}_system.xml"
-            with open(filename, "w") as f:
-                f.write(XmlSerializer.serialize(self.system))
-
-    
-    def load_system(self, hmr: bool = False) -> bool:
-        if hmr:
-            filename = self.parent / f"{self.prefix}_system_hmr.xml"
-        else:
-            filename = self.parent / f"{self.prefix}_system.xml"
-        if not filename.exists():
-            return False
-        with open(filename, "r") as f:
-            self.system = XmlSerializer.deserialize(f.read())
-        return True
     
 
     def _get_bonded_atom_pairs(self, topology) -> list:

@@ -26,6 +26,7 @@ from openmm import (
 from openmmtools.testsystems import TestSystem
 
 from .validcomplex import ValidComplex
+from .simfileio import SimFileIO
 from .utils import setup_logger
 
 logger = logging.getLogger(__name__)
@@ -108,7 +109,7 @@ class CustomMinimizationReporter(MinimizationReporter):
         self._out.close()
 
 
-class MultiStage:
+class MultiStage(SimFileIO):
     def __init__(self, 
                  complex: TestSystem | ValidComplex | Path | str,
                  workdir: Path | str | None = None,
@@ -248,70 +249,6 @@ class MultiStage:
 
 
 
-    def save_complex(self) -> None:
-        """Save the fixed protein to a PDB file.
-
-        Returns:
-            None
-        """
-        filename = self.workdir / f'{self.prefix}_complex.pdb'
-        with open(filename, "w") as f:
-            app.PDBFile.writeFile(
-                self.topology,
-                self.positions,
-                f,
-                keepIds=True
-            )
-
-
-    def load_complex(self) -> bool:
-        filename = self.workdir / f'{self.prefix}_complex.pdb'
-        if not filename.exists():
-            return False
-        pdb = app.PDBFile(filename.as_posix())
-        self.topology = pdb.topology
-        self.positions = pdb.positions
-        return True
-    
-
-    def save_system(self, hmr: bool = False) -> None:
-        # system contains positional restraints (CustomExternalForce)
-        if hmr:
-            filename = self.workdir / f"{self.prefix}_system_hmr.xml"
-        else:
-            filename = self.workdir / f"{self.prefix}_system.xml"
-        with open(filename, "w") as f:
-            f.write(XmlSerializer.serialize(self.system))
-
-
-    def load_system(self, hmr: bool = False) -> bool:
-        if hmr:
-            filename = self.workdir / f"{self.prefix}_system_hmr.xml"
-        else:
-            filename = self.workdir / f"{self.prefix}_system.xml"
-
-        if not filename.exists():
-            return False
-        with open(filename, "r") as f:
-            self.system = XmlSerializer.deserialize(f.read())
-        return True
-
-
-    def save_integrator(self) -> None:
-        filename = self.workdir / f"{self.prefix}_integrator.xml"
-        with open(filename, "w") as f:
-            f.write(XmlSerializer.serialize(self.integrator))
-
-
-    def load_integrator(self) -> bool:
-        filename = self.workdir / f"{self.prefix}_integrator.xml"
-        if not filename.exists():
-            return False
-        with open(filename, "r") as f:
-            self.integrator = XmlSerializer.deserialize(f.read())
-        return True
-
-
     def load_sim_env(self) -> bool:
         if not self.load_complex():
             return False
@@ -320,24 +257,6 @@ class MultiStage:
         if not self.load_integrator():
             return False
         self._create_simulation()
-        return True
-
-
-    def save_state(self, stage: int) -> None:
-        tag = self.stages[stage]['tag']
-        # Save the current state to an XML file (more portable than checkpoints)
-        filename = (self.workdir / f'{self.prefix}_{tag}.xml').as_posix()
-        self.simulation.saveState(filename)
-
-
-    def load_state(self, stage: int) -> bool:
-        tag = self.stages[stage]['tag']
-        filename = (self.workdir / f'{self.prefix}_{tag}.xml').as_posix()
-        if not filename.exists():
-            return False
-        # For loading a state (more portable)
-        with open(filename, 'r') as f:
-            self.simulation.loadState(f.read())
         return True
 
 
