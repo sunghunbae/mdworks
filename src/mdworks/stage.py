@@ -43,9 +43,6 @@ class StageSetting:
         return f"StageSetting({self.settings})"
     
     def show(self):
-        from rich.console import Console
-        from rich.table import Table
-
         columns = {
             'temperature': 'Temperature(K)',
             'frequency': 'BarostatFrequency',

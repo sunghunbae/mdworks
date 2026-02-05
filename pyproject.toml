@@ -1,13 +1,12 @@
 [project]
 name = "mdworks"
-version = "0.3.2"
+version = "0.4.1"
 authors = [{name = "Sung-Hun Bae", email = "sunghun.bae@gmail.com"}]
 requires-python = ">= 3.11"
 dependencies = []
 
 [project.scripts]
-cif2seq = "mdworks.mmcif:cif2seq"
-cif2pdb = "mdworks.mmcif:cif2pdb"
+mmcif = "mdworks.mmcif:app"
 
 [build-system]
 build-backend = "hatchling.build"

@@ -57,10 +57,15 @@ class Equilibrium(MultiStage):
         self.pressure = pressure * unit.bar
         
         self.stages = [
-            {'tag': '0_min', 'maxiter': 5000, 'tolerance': 0.1, 'interval': 10},
+            {
+                'tag': '0_min',
+                'description': 'Energy minimization', 
+                'maxiter': 5000, # or 0 for convergence
+                'tolerance': 0.1, # default 10
+                'interval': 10 },
             {
                 'tag': '1_nvt_cold',
-                'description': 'NVT 100 ps at 10 K with positional restraints and a high friction coefficient',
+                'description': 'NVT with positional restraints and high friction coefficient',
                 't': (100., 1.0),
                 'T': 10,
                 'k': 1000,
@@ -68,7 +73,7 @@ class Equilibrium(MultiStage):
                 'interval': 1000 },
             {
                 'tag': '2_nvt_warm',
-                'description': f'NVT 145 ps with heating gradually while maintaining positional restraints',
+                'description': 'NVT with positional restraints and gradual heating',
                 't': (145., 1.0),
                 'T': (10., temperature, 10.),
                 'k': 1000.,
@@ -76,7 +81,7 @@ class Equilibrium(MultiStage):
                 'interval': 1000 },
             {
                 'tag': '3_npt_posres',
-                'description': f'NPT 300 ps at {temperature} K with releasing positional restraints gradually',
+                'description': 'NPT with gradual releasing of positional restraints',
                 't': (300., 1.0),
                 'T': temperature,
                 'k': (1000., 0, -20),
@@ -85,7 +90,7 @@ class Equilibrium(MultiStage):
                 'interval': 1000 },
             {
                 'tag': '4_npt_free',
-                'description': f'NPT 500 ps at {temperature} K without positional restraints',
+                'description': 'NPT without positional restraint',
                 't': (500., 2.0),
                 'T': temperature,
                 'k': 0.0,
@@ -94,7 +99,7 @@ class Equilibrium(MultiStage):
                 'interval': 1000 },
             {
                 'tag': '5_prod',
-                'description': f'NPT {time} ns at {temperature} K (production)',
+                'description': 'NPT production',
                 't': (time * 1000., timestep),
                 'T': temperature,
                 'k': 0.0,
@@ -141,7 +146,7 @@ class Equilibrium(MultiStage):
         # final update
         self.positions = self.simulation.context.getState(getPositions=True).getPositions()
 
-        with open(self.workdir / f"{self.prefix}_FINAL.pdb", "w") as f:
+        with open(self.workdir / f"{self.prefix}_LAST.pdb", "w") as f:
             app.PDBFile.writeFile(self.topology, self.positions, f)
 
         # create the empty file to mark completion
@@ -149,4 +154,4 @@ class Equilibrium(MultiStage):
 
         logger.info(f"Simulation complete!")
         logger.info(f"Trajectory saved to {self.prefix}.dcd")
-        logger.info(f"The final structure has been written to {self.prefix}_FINAL.pdb")
+        logger.info(f"Structure saved to {self.prefix}_LAST.pdb")

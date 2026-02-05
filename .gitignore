@@ -1,5 +1,15 @@
 # pixi environments
 .pixi/*
 !.pixi/config.toml
+
+# python
+__pycache__/
+*.pyc
+*.egg-info/
+
+# jupyter notebooks
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+
+# build
 *.conda
-notebooks/.ipynb_checkpoints

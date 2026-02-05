@@ -2,6 +2,7 @@ from pathlib import Path
 from collections import defaultdict
 import logging
 import typer
+from typing import Annotated
 
 import Bio
 from Bio import Align
@@ -18,7 +19,10 @@ from openmm import (
     CustomExternalForce,
 )
 
-app = typer.Typer()
+
+app = typer.Typer(help='MMCIF tools to Get Protein Sequence or Convert to PDB')
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -349,9 +353,10 @@ def get_info(path: str | Path) -> None:
         print()
 
 
+
 @app.command()
-def cif2seq(cif_path: str):
-    """Get sequence information from a MMCIF(.cif) file.
+def cif2seq(filename: Annotated[str, typer.Argument(help="Input .cif filename.")]):
+    """Get missing residue(s) and sequence from a MMCIF(.cif) file.
 
     - Full sequence
     - Coordinate sequence with missing residues (`-`)
@@ -359,8 +364,8 @@ def cif2seq(cif_path: str):
     Args:
         cif_path (str): .cif file path.
     """
-    coor_seq = get_residue_poly_sequences(cif_path)
-    auth_seq = get_entity_poly_sequences(cif_path)
+    coor_seq = get_residue_poly_sequences(filename)
+    auth_seq = get_entity_poly_sequences(filename)
 
     aligner = Align.PairwiseAligner()
     aligner.mode = 'local'
@@ -377,21 +382,23 @@ def cif2seq(cif_path: str):
     print(f'  length={alignment.length}')
     print(f'  aligned={alignment.aligned}')
 
-    ligand = get_nonpoly_chains_and_residues(cif_path)
+    ligand = get_nonpoly_chains_and_residues(filename)
     print(ligand)
 
 
+
 @app.command()
-def cif2pdb(cif_path: str):
-    """Convert .cif to .pdb file.
+def cif2pdb(filename: Annotated[str, typer.Argument(help="Input .cif filename.")]):
+    """Convert to PDB file.
 
     OpenMM energy minimization with heavy atom restraints
 
     Args:
         cif_path (str): .cif file path.
     """
-    print(f'converting {cif_path} to .pdb')
-    convert_mmcif_to_pdb(cif_path)
+    print(f'converting {filename} to .pdb')
+    convert_mmcif_to_pdb(filename)
+
 
 
 if __name__ == '__main__':
