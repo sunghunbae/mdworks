@@ -33,6 +33,7 @@ openmmtools = ">=0.26.0,<0.27"
 cuda-version = "13.0.*"
 ambertools = { version = ">=24.8,<25", channel = "conda-forge" }
 compilers = { version = ">=1.11.0,<2", channel = "conda-forge" }
+rich = ">=14.3.2,<15"
 
 [tool.pixi.pypi-dependencies]
 typer = ">=0.21.1, <0.22"
