@@ -1,9 +1,11 @@
 [project]
 name = "mdworks"
-version = "0.4.1"
+version = "0.5.0"
+description = "Streamlines preparation and equilibration of molecular complex for MD simulations"
+readme = "README.md"
 authors = [{name = "Sung-Hun Bae", email = "sunghun.bae@gmail.com"}]
 requires-python = ">= 3.11"
-dependencies = []
+dependencies = ["twine>=6.2.0,<7"]
 
 [project.scripts]
 mmcif = "mdworks.mmcif:app"
@@ -33,14 +35,16 @@ cuda-version = "13.0.*"
 ambertools = { version = ">=24.8,<25", channel = "conda-forge" }
 compilers = { version = ">=1.11.0,<2", channel = "conda-forge" }
 rich = ">=14.3.2,<15"
+uv = ">=0.10.0,<0.11"
 
 [tool.pixi.pypi-dependencies]
 typer = ">=0.21.1, <0.22"
 mdworks = { path = ".", editable = true }
 
 [tool.pixi.package.host-dependencies]
-hatchling = "*"
-uv = "*"
+hatchling = ">=1.28.0,<2"
+uv = ">=0.10.0,<0.11"
 
 [tool.pixi.tasks]
-
+build-pypi = "uv build"
+build-conda = "pixi build --output-dir build; pixi install"

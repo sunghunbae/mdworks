@@ -1,3 +1,11 @@
+# Streamlines preparation and equilibration of molecular complex for MD simulations
+
+Whether the atomic coordinates come from experimentally determined complex structures or 
+from co-folding AI models, they often require adjustments such as correcting ligand
+stereochemistry or fixing other structural details needed for molecular dynamics. 
+`mdworks` streamlines this process by making it easy to prepare a valid protein-ligand complex 
+and setup up and run equilibrium MD simulations with OpenMM.
+
 # Install
 
 ## Pixi
@@ -34,8 +42,8 @@ jupyter lab
 # Usage
 
 ```py
-from openmd import ValidComplex
-from openmd.protocol import Equilibrium
+from mdworks import ValidComplex
+from mdworks.protocol import Equilibrium
 
 vc = ValidComplex('protein_ligand_complex.cif')
 

@@ -48,6 +48,7 @@ class SimFileIO:
                 self.positions = pdb.positions
                 logger.info(f"complex loaded - {filename.with_suffix('.pdb.gz')}")
         else:
+            logger.info(f"cannot load complex {filename} or {filename.with_suffix('.pdb.gz')}")
             return False
         return True
     
@@ -90,6 +91,7 @@ class SimFileIO:
                 self.system = XmlSerializer.deserialize(f.read())
                 logger.info(f"system loaded - {filename.with_suffix(".xml.gz")}")
         else:
+            logger.info(f"cannot load system {filename} or {filename.with_suffix(".xml.gz")}")
             return False
         return True
 
@@ -117,6 +119,7 @@ class SimFileIO:
                 self.integrator = XmlSerializer.deserialize(f.read())
                 logger.info(f"integrator loaded - {filename.with_suffix('.xml.gz')}")
         else:
+            logger.info(f"cannot load integrator {filename} or {filename.with_suffix('.xml.gz')}")
             return False
         return True
 
@@ -145,5 +148,6 @@ class SimFileIO:
                 self.simulation.loadState(f.read())
                 logger.info(f"state loaded - {filename.with_suffix('.xml.gz')}")
         else:
+            logger.info(f"cannot load state {filename} or {filename.with_suffix('.xml.gz')}")
             return False        
         return True

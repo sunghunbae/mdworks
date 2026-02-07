@@ -14,13 +14,7 @@ try:
     from pdbfixer import PDBFixer
     from openff.toolkit.topology.molecule import Molecule
     from openmmforcefields.generators import SMIRNOFFTemplateGenerator
-    from openmm import (
-        app, 
-        unit, 
-        CustomExternalForce, 
-        XmlSerializer,
-        )
-
+    from openmm import app, unit, CustomExternalForce
 except ImportError:
     raise ImportError("install openmm, openmmforcefields, pdbfixer, and openff-toolkit from conda-forge.\n")
 
@@ -114,7 +108,7 @@ class ValidComplex(SimFileIO):
         self.restrained = []
         self.system = None
         
-        setup_logger(logger, self.parent, self.prefix, quiet=quiet)
+        setup_logger(logger, self.workdir, self.prefix, quiet=quiet)
 
         logger.info(f"mdworks {version('mdworks')}")
         logger.info(f"pdbfixer {version('pdbfixer')}")
@@ -387,17 +381,17 @@ class ValidComplex(SimFileIO):
         )
 
 
-    def build_system(self,
-                    ff_ligand: str = "openff-2.2.1.offxml", # Sage
-                    ff_protein: str = "amber/protein.ff14SB.xml",
-                    ff_water: str = "amber/tip3p_standard.xml",
-                    solvent: str = 'tip3p',
-                    box_padding: float = 1.0,
-                    salt_conc: float = 0.15, # 0.15 M
-                    positive_ion: str = 'Na+',
-                    negative_ion: str = 'Cl-',
-                    h_mass_factor: float = 3.0,
-                    ) -> None:
+    def build(self,
+              ff_ligand: str = "openff-2.2.1.offxml", # Sage
+              ff_protein: str = "amber/protein.ff14SB.xml",
+              ff_water: str = "amber/tip3p_standard.xml",
+              solvent: str = 'tip3p',
+              box_padding: float = 1.0,
+              salt_conc: float = 0.15, # 0.15 M
+              positive_ion: str = 'Na+',
+              negative_ion: str = 'Cl-',
+              h_mass_factor: float = 3.0
+              ) -> None:
         """Build Openmm System object.
 
         Notes:
@@ -475,7 +469,7 @@ class ValidComplex(SimFileIO):
         
         self._add_posres() # posres should be added to system before creating simulation
         self.save_system() # system has the positional restraints info.
-        logger.info(f"system saved - {self.parent / f'{self.prefix}_system.xml'}")
+        logger.info(f"system saved - {self.workdir / f'{self.prefix}_system.xml'}")
 
         # hydrogen mass repartitioning (HMR)
         self.system_hmr = self.forcefield.createSystem(
@@ -489,7 +483,7 @@ class ValidComplex(SimFileIO):
         logger.info(f"hydrogen mass repartitioning applied with factor {h_mass_factor}")
         # HMR stage does not require posres
         self.save_system(hmr=True) # system has the positional restraints info.
-        logger.info(f"system saved - {self.parent / f'{self.prefix}_system_hmr.xml'}")
+        logger.info(f"system saved - {self.workdir / f'{self.prefix}_system_hmr.xml'}")
 
 
     def save_protein(self) -> None:
@@ -498,7 +492,7 @@ class ValidComplex(SimFileIO):
         Returns:
             None
         """
-        filename = self.parent / f'{self.prefix}_protein.pdb'
+        filename = self.workdir / f'{self.prefix}_protein.pdb'
         with open(filename, "w") as f:
             app.PDBFile.writeFile(
                 self.protein_modeller.topology,
@@ -517,7 +511,7 @@ class ValidComplex(SimFileIO):
         if not self.rdmolH:
             raise ValueError("we may need to fix the ligand first. use fix_ligand()")
         
-        filename = self.parent / f'{self.prefix}_ligand.sdf'
+        filename = self.workdir / f'{self.prefix}_ligand.sdf'
 
         if len(self.mem_ligand_charges.getvalue()) > 0:
             self.off_mol.to_file(filename, file_format='sdf')

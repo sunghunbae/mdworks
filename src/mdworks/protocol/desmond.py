@@ -5,11 +5,12 @@ __all__ = ['Desmond',]
 
 from pathlib import Path
 from openmm import app, unit
+
 from openmmtools.testsystems import TestSystem
 
-from mdworks.multistage import MultiStage
-from mdworks.validcomplex import ValidComplex
-from mdworks.utils import setup_logger
+from .multistage import MultiStage
+from ..validcomplex import ValidComplex
+from ..utils import setup_logger
 
 import logging
 

@@ -20,6 +20,8 @@ def setup_logger(logger: logging.Logger,
     stdout_stream_handler.setLevel(logging.DEBUG)
     stdout_stream_handler.setFormatter(logger_format)
 
+    workdir.mkdir(exist_ok=True)
+    
     # file handler
     logging_file_handler = logging.FileHandler(workdir / f"{prefix}.log")
     logging_file_handler.setLevel(logging.DEBUG)

@@ -5,57 +5,44 @@ __all__ = ['Equilibrium',]
 
 from pathlib import Path
 from functools import partial
+
 from openmm import app, unit
 from openmmtools.testsystems import TestSystem
 
-from mdworks.multistage import MultiStage
-from mdworks.validcomplex import ValidComplex
-from mdworks.utils import setup_logger
+from ..utils import setup_logger
+from ..validcomplex import ValidComplex
+from .multistage import MultiStage
 
 import logging
+import gzip
+
 
 logger = logging.getLogger(__name__)
 
 
 class Equilibrium(MultiStage):
-
     def __init__(self, 
                  complex: TestSystem | ValidComplex, 
                  workdir: Path | str | None = None,
                  platform: str = 'CUDA', 
                  devices: str = '0',
-                 hmr : bool = True,
-                 time : float = 10.0,
-                 timestep : float = 2.0,
                  temperature: float = 300.0,
                  pressure: float = 1.0,
-                 state_data_interval : float = 100.,
-                 trajectory_interval : float = 100.,
-                 checkpoint_interval : float = 100.,
                  quiet: bool = False) -> None:
-        """Initialize equilibrium MD.
+        """_summary_
 
         Args:
-            complex (TestSystem | ValidComplex): _description_
-            hmr (bool, optional): whether to use HMR and use 4 fs timestep. Defaults to True.
-            time (float, optional): time in nanosecond. Defaults to 10.0.
-            timestep (float, optional): timestep in femtosecond. Defaults to 2.0.
-            temperature (float, optional): temperature in kelvin. Defaults to 300.0.
+            complex (TestSystem | ValidComplex): molecular system to run equilibrium MD.
+            workdir (Path | str | None, optional): output path. Defaults to None.
+            platform (str, optional): openmm platform. Defaults to 'CUDA'.
+            devices (str, optional): CUDA devices. Defaults to '0'.
+            temperature (float, optional): temperate in kelvin. Defaults to 300.0.
             pressure (float, optional): pressure in bar. Defaults to 1.0.
-            state_data_interval (float, optional): state data interval time in ps. Defaults to 100.
-            trajectory_interval (float, optional): trajectory interval time in ps. Defaults to 100.
-            checkpoint_interval (float, optional): checkpoint interval time in ps. Defaults to 100.
+            quiet (bool, optional): whether to show logging info. Defaults to False.
         """
         super().__init__(complex, workdir, platform, devices, quiet)
 
-        self.time = time * unit.nanoseconds
-        self.hmr = hmr
-        if hmr:
-            timestep = 4.0
-        self.timestep = timestep * unit.femtoseconds
-        self.temperature = temperature * unit.kelvin
         self.pressure = pressure * unit.bar
-        
         self.stages = [
             {
                 'tag': '0_min',
@@ -97,18 +84,6 @@ class Equilibrium(MultiStage):
                 'friction': 1,
                 'frequency': 50,
                 'interval': 1000 },
-            {
-                'tag': '5_prod',
-                'description': 'NPT production',
-                't': (time * 1000., timestep),
-                'T': temperature,
-                'k': 0.0,
-                'friction': 1,
-                'frequency': 50,
-                'state_data_interval': state_data_interval,
-                'checkpoint_interval': checkpoint_interval,
-                'trajectory_interval': trajectory_interval,
-             },
         ]
         
         self.stage_partials = [
@@ -117,21 +92,14 @@ class Equilibrium(MultiStage):
             partial(self._stage_NVT_warm, stage=2),
             partial(self._stage_NPT_posres, stage=3),
             partial(self._stage_NPT_free, stage=4),
-            partial(self._stage_NPT_prod, stage=5),
         ]
 
         assert len(self.stage_partials) == len(self.stages)
-
         setup_logger(logger, self.workdir, self.prefix, quiet=quiet)
 
 
-    def run(self):
-        """Run multi-stage MD simulation.
-
-        Note:
-            all arguments apply to the production stage.
-            workdir (str | Path | None, optional): output directory. Defaults to None (same directory as input).
-        """
+    def run(self) -> None:
+        """Run multi-stage equilibrium MD simulation."""
         # check the last stage checkpoint
         # if no checkpoint exists, stage_cpt_idx ends up with -1
         stage_cpt_idx = len(self.stage_partials)-1
@@ -146,12 +114,11 @@ class Equilibrium(MultiStage):
         # final update
         self.positions = self.simulation.context.getState(getPositions=True).getPositions()
 
-        with open(self.workdir / f"{self.prefix}_LAST.pdb", "w") as f:
+        with gzip.open(self.workdir / f"{self.prefix}_ready.pdb.gz", "wt") as f:
             app.PDBFile.writeFile(self.topology, self.positions, f)
 
         # create the empty file to mark completion
-        (self.workdir / f"{self.prefix}_DONE").touch(exist_ok=True)
+        (self.workdir / f"{self.prefix}_READY").touch(exist_ok=True)
 
-        logger.info(f"Simulation complete!")
-        logger.info(f"Trajectory saved to {self.prefix}.dcd")
-        logger.info(f"Structure saved to {self.prefix}_LAST.pdb")
+        logger.info(f"Equilibration complete!")
+        logger.info(f"Structure saved to {self.prefix}_ready.pdb.gz")

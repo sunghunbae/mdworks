@@ -15,6 +15,11 @@ class Diagnosis:
         self.positions = positions
 
 
+    def get_runtime_precision(self) -> str:
+        platform = self.simulation.context.getPlatform()
+        return platform.getPropertyValue(self.simulation.context, "Precision")
+
+
     def examine(self) -> None:
         state = self.simulation.context.getState(
             getPositions=True, 
