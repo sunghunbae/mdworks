@@ -1,14 +1,19 @@
-## 0.11.0
-added implicit solvent option (`gbn2`, `obc2`)
-
+## 0.12.0
+- added CLI `equilibrate` to run equilibrium MD simulation
+  
+## 0.11.1
+- added implicit solvent option (`gbn2`, `obc2`)
+- Zn, Mg and other ions are not supported by implicit solvent model and requires explicit solvent model
+- Hydrogen mass partioning is only for explicit solvent model
+  
 ## 0.10.0
-added CLI `guess_smiles` to get SMILES string from a ligand PDB file
+- added CLI `guess_smiles` to get SMILES string from a ligand PDB file
 
 ## 0.9.0
-added CLI `ready` to prepare receptor which isolates and merges ligand after processing
+- added CLI `ready` to prepare receptor which isolates and merges ligand after processing
 
 ## 0.2.0
-added CustomMinimizationReporter
+- added CustomMinimizationReporter
 
 ## 0.1.0
 - ValidComplex class

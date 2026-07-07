@@ -444,7 +444,8 @@ class ValidComplex(SimFileIO):
         # force field
         if solvent in ['gbn2', 'obc2', 'gbn1', 'obc1']:
             # implicit solvent model
-            self.forcefield = app.ForceField(ff_protein, f"implicit/{solvent}.xml")
+            # Zn and other divalent ions are not supported in implicit solvent model and requires explicit solvent model.
+            self.forcefield = app.ForceField(ff_protein, ff_water, f"implicit/{solvent}.xml")
         else:
             self.forcefield = app.ForceField(ff_protein, ff_water)
         
@@ -462,7 +463,7 @@ class ValidComplex(SimFileIO):
                 constraints= app.HBonds,
                 soluteDielectric= 1.0, # default interior dielectric constant for protein
                 solventDielectric= 78.5, # default exterior dielectric constant for bulk water
-                implicitSolventSaltConc = salt_conc * unit.molar,
+                # implicitSolventSaltConc = salt_conc * unit.molar,
             )
             logger.info(f"system built with:")
             logger.info(f"  {ff_protein}")
@@ -499,18 +500,20 @@ class ValidComplex(SimFileIO):
         logger.info(f"system saved - {self.workdir / f'{self.prefix}_system.xml'}")
 
         # hydrogen mass repartitioning (HMR)
-        self.system_hmr = self.forcefield.createSystem(
-            self.modeller.topology,
-            nonbondedMethod= app.PME,
-            nonbondedCutoff= 1.0 * unit.nanometer,
-            constraints= app.HBonds,
-            rigidWater= True, # fix water geometry
-            hydrogenMass= h_mass_factor * 1.008 * unit.amu,
-        )
-        logger.info(f"hydrogen mass repartitioning applied with factor {h_mass_factor}")
-        # HMR stage does not require posres
-        self.save_system(hmr=True) # system has the positional restraints info.
-        logger.info(f"system saved - {self.workdir / f'{self.prefix}_system_hmr.xml'}")
+        # ONLY for explicit solvent model.
+        if solvent not in ['gbn2', 'obc2', 'gbn1', 'obc1']:
+            self.system_hmr = self.forcefield.createSystem(
+                self.modeller.topology,
+                nonbondedMethod= app.PME,
+                nonbondedCutoff= 1.0 * unit.nanometer,
+                constraints= app.HBonds,
+                rigidWater= True, # fix water geometry
+                hydrogenMass= h_mass_factor * 1.008 * unit.amu,
+            )
+            logger.info(f"hydrogen mass repartitioning applied with factor {h_mass_factor}")
+            # HMR stage does not require posres
+            self.save_system(hmr=True) # system has the positional restraints info.
+            logger.info(f"system saved - {self.workdir / f'{self.prefix}_system_hmr.xml'}")
 
 
     def save_protein(self) -> None:
