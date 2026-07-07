@@ -186,23 +186,26 @@ class MDAnalyzer:
             self.calculate_rmsd()
 
         fig, ax = plt.subplots(figsize = self.figsize)
-        select_rmsd = self.rmsd_values[:, 0]
-        data = [np.median(select_rmsd), np.std(select_rmsd)]
+        data = []
         for i in range(len(self.labels)):
             group_rmsd = self.rmsd_values[:, i+1]
-            data += [np.median(group_rmsd), np.std(group_rmsd)]
+            median_group_rmsd = np.median(group_rmsd)
             ax.plot(self.time, group_rmsd, linewidth=1.5, label=self.labels[i])
-        
+            data.append(median_group_rmsd)
+            ax.axhline(median_group_rmsd, color='red', linestyle='--', alpha=0.7, 
+                       label=f'Median: {median_group_rmsd:.2f} Å')
         ax.set_xlabel('Time (ps)', fontsize= self.axis_label_fontsize, fontweight='bold')
         ax.set_ylabel('RMSD (Å)', fontsize= self.axis_label_fontsize, fontweight='bold')
         ax.set_title('Backbone RMSD over Time', fontsize= self.title_fontsize, fontweight='bold')
         ax.grid(alpha=0.3)
 
+        # Highlight threshold (typical: 2.5 Å)
+        ax.axhline(2.5, color='green', linestyle=':', alpha=0.5, label='Threshold (2.5 Å)')
         # Add statistics - only mean line
-        mean_rmsd = np.mean(self.rmsd_values[:, 0])
-        std_rmsd = np.std(self.rmsd_values[:, 0])
-        ax.axhline(mean_rmsd, color='red', linestyle='--', alpha=0.7,
-                  label=f'Mean: {mean_rmsd:.2f} Å')
+        # median_rmsd = np.mean(self.rmsd_values[:, 1])
+        # std_rmsd = np.std(self.rmsd_values[:, 1])
+        # ax.axhline(median_rmsd, color='red', linestyle='--', alpha=0.7,
+        #           label=f'Mean: {median_rmsd:.2f} Å')
         ax.legend()
 
         plt.tight_layout()
@@ -217,11 +220,7 @@ class MDAnalyzer:
             if csv_path.exists():
                 header = None
             else:
-                header = [self.selection,]
-                for l in self.labels:
-                    header.append(f'{l}(rmsd)')
-                    header.append(f'{l}(stdev)')
-                header.append('trajectory')
+                header = self.labels + ['trajectory',]
             with open(csv_path, '+a') as f:
                 if header:
                     f.write(','.join(header) + '\n')
