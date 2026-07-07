@@ -28,9 +28,11 @@ logger = logging.getLogger(__name__)
 class ValidComplex(SimFileIO):
     """Class for preparing valid protein/ligand complex structure.
     
-    Issues with OpenFold3 and OpenEye Spruce
+    Issues with OpenFold3
         - OpenFold3 generates flat geometries instead of tetrahedral for undefined chiral center(s)
         - OpenFold3 does not generate hydrogen atoms
+
+    Issues with OpenEye Spruce
         - Spruce cannot assign either (S) nor (R) to these flat carbon atoms
         - Spruce arbitrarily assigns double bond when inferring structures from coordinates
 
@@ -65,11 +67,14 @@ class ValidComplex(SimFileIO):
         """Initialize class object.
 
         Args:
-            in_file (str | Path): input complex structure in mmcif format.
+            in_file (str | Path): input complex structure in PDB or MMCIF format.
+            workdir (Path | str | None, optional): working directory. Defaults to None.
+            remove_solvent (bool, optional): whether to remove solvent molecules. Defaults to True.
             pH (float, optional): pH to be considered when adding hydrogens. Defaults to 7.0.
-            max_displacement (float, optional): max displacement (in A) during restrained optimization. Defaults to 0.5.
+            max_displacement (float, optional): max displacement (in A) during restrained optimization of ligand. Defaults to 0.5.
             k (float, optional): force constant during restrained optimization. Defaults to 1000.0.
             max_iter (int, optional): max number of iteration in restrained optimization. Defaults to 500.
+            quiet (bool, optional): whether to suppress logging. Defaults to False.
         """
         assert isinstance(in_file, str) or isinstance(in_file, Path)
         assert Path(in_file).exists()
@@ -363,7 +368,7 @@ class ValidComplex(SimFileIO):
         self.off_mol.to_file(self.mem_ligand_charges, file_format='sdf')
 
         
-    def _add_solvent(self) -> None:
+    def _add_explicit_solvent(self) -> None:
         """Solvate simulation box using addSolvent()."""
         logger.info(f"system solvated with:")
         logger.info(f"  solvent model: {self.solvent}")
@@ -437,31 +442,53 @@ class ValidComplex(SimFileIO):
             self.modeller.positions)
         
         # force field
-        self.forcefield = app.ForceField(ff_protein, ff_water)
+        if solvent in ['gbn2', 'obc2', 'gbn1', 'obc1']:
+            # implicit solvent model
+            self.forcefield = app.ForceField(ff_protein, f"implicit/{solvent}.xml")
+        else:
+            self.forcefield = app.ForceField(ff_protein, ff_water)
         
         # load OpenFF ligand FF
         smirnoff = SMIRNOFFTemplateGenerator(molecules=[self.off_mol], forcefield=ff_ligand)
         
         self.forcefield.registerTemplateGenerator(smirnoff.generator)
 
-        self.solvent = solvent
-        self.box_padding = box_padding
-        self.salt_conc = salt_conc
-        self.positive_ion = positive_ion
-        self.negative_ion = negative_ion
-        self._add_solvent()
+        if solvent in ['gbn2', 'obc2', 'gbn1', 'obc1']:
+            # implicit solvent model
+            self.system = self.forcefield.createSystem(
+                self.modeller.topology,
+                nonbondedMethod= app.CutoffNonPeriodic,
+                nonbondedCutoff= 1.0 * unit.nanometer,
+                constraints= app.HBonds,
+                soluteDielectric= 1.0, # default interior dielectric constant for protein
+                solventDielectric= 78.5, # default exterior dielectric constant for bulk water
+                implicitSolventSaltConc = salt_conc * unit.molar,
+            )
+            logger.info(f"system built with:")
+            logger.info(f"  {ff_protein}")
+            logger.info(f"  {ff_ligand}")
+            logger.info(f"  implicit/{solvent}")
 
-        self.system = self.forcefield.createSystem(
-            self.modeller.topology,
-            nonbondedMethod= app.PME,
-            nonbondedCutoff= 1.0 * unit.nanometer,
-            constraints= app.HBonds,
-            rigidWater= True, # fix water geometry
-        )
-        logger.info(f"system built with:")
-        logger.info(f"  {ff_protein}")
-        logger.info(f"  {ff_ligand}")
-        logger.info(f"  {ff_water}")
+        else:
+            # explicit solvent model
+            self.solvent = solvent
+            self.box_padding = box_padding
+            self.salt_conc = salt_conc
+            self.positive_ion = positive_ion
+            self.negative_ion = negative_ion
+            self._add_explicit_solvent()
+
+            self.system = self.forcefield.createSystem(
+                self.modeller.topology,
+                nonbondedMethod= app.PME,
+                nonbondedCutoff= 1.0 * unit.nanometer,
+                constraints= app.HBonds,
+                rigidWater= True, # fix water geometry
+            )
+            logger.info(f"system built with:")
+            logger.info(f"  {ff_protein}")
+            logger.info(f"  {ff_ligand}")
+            logger.info(f"  {ff_water}")
 
         self.topology = self.modeller.topology
         self.positions = self.modeller.positions

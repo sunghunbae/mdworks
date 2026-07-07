@@ -1,6 +1,6 @@
 [project]
 name = "mdworks"
-version = "0.8.0"
+version = "0.11.0"
 description = "Streamlines preparation and equilibration of molecular complex for MD simulations"
 readme = "README.md"
 authors = [{name = "Sung-Hun Bae", email = "sunghun.bae@gmail.com"}]
@@ -10,6 +10,8 @@ dependencies = ["twine>=6.2.0,<7"]
 [project.scripts]
 mmcif = "mdworks.mmcif:app"
 ready = "mdworks.ready:app"
+guess-smiles = "mdworks.build:guess_smiles"
+build = "mdworks.build:app"
 
 [build-system]
 build-backend = "hatchling.build"
