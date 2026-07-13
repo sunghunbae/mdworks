@@ -81,9 +81,8 @@ def merge(protein_pdb: str | Path,
         PDBFile.writeFile(modeller.topology, modeller.positions, f_out)
 
 
-
 def get_receptor_ready(
-        filename: str | Path | None = None, 
+        filename: str | None = None, 
         pdb_id: str | None = None,
         ligand_resname: str | None = None,
         output_prefix: str | None = None, 
@@ -94,39 +93,25 @@ def get_receptor_ready(
     PDBFixer/PDB2PQR workflow excludes non-standard residus including ligands, cofactors, and water molecules.
     So, if the receptor structure contains a ligand, it should be extracted and processed separately.
     """  
-    # Validate input arguments
-    if filename and pdb_id:
-        raise ValueError("Provide either filename or pdb_id, not both.")
     if filename:
-        assert isinstance(filename, (str, Path)), "filename must be a string or Path"
-        if isinstance(filename, str):
-            filename = Path(filename)
-        assert Path(filename).exists(), f"{filename} does not exist"
-        receptor_name = filename.stem
+        receptor_name = Path(filename).stem
+        workdir = Path(filename).parent
     elif pdb_id:
-        assert isinstance(pdb_id, str), "pdb_id must be a string"
-        assert len(pdb_id) == 4, "pdb_id must be a 4-character string"
         receptor_name = pdb_id
+        workdir = Path.cwd()
     else:
         raise ValueError("Either filename or pdb_id must be provided")
 
     if output_prefix is None:
-        if filename:
-            output_prefix = Path(filename).stem
-        elif pdb_id:
-            output_prefix = pdb_id
-
-    if filename:
-        workdir = Path(filename).parent
-    elif pdb_id:
-        workdir = Path.cwd()
+        output_prefix = receptor_name
 
     logging.getLogger().handlers.clear()
     setup_logger(logger, workdir, output_prefix, quiet=quiet)
 
     fixed_pdb_path = f"{output_prefix}_fixed.pdb"  
     final_pqr_path = f"{output_prefix}_H.pqr"  
-    final_pdb_path = f"{output_prefix}_ready.pdb"
+    final_pdb_path = f"{output_prefix}_H.pdb"
+
     complex_path = f"{output_prefix}_complex.pdb"
 
     if filename:
@@ -149,12 +134,12 @@ def get_receptor_ready(
     # PDBFixer uses geometry template to fill in missing residues and atoms, 
     # and to replace nonstandard residues with standard ones.
     fixer.findMissingResidues()
-    fixer.findNonstandardResidues()  
-    fixer.replaceNonstandardResidues()  
+    fixer.findNonstandardResidues()
+    fixer.replaceNonstandardResidues()
     fixer.findMissingAtoms()
     # Add missing heavy atoms (but do not add hydrogens yet; PDB2PQR will do that)  
-    fixer.addMissingAtoms()  
-    fixer.removeChains(chainIndices=[-1]) 
+    fixer.addMissingAtoms()
+    fixer.removeChains(chainIndices=[-1])
     # Write intermediate fixed heavy-atom structure  
     with open(fixed_pdb_path, "w") as f:  
         PDBFile.writeFile(fixer.topology, fixer.positions, f)  
@@ -197,33 +182,3 @@ def get_receptor_ready(
         logger.info(f"[Step 4] Merging final receptor and original ligand {ligand_resname} ...")
         merge(final_pdb_path, ligand_output_file, complex_path)
         logger.info(f"Merged complex saved to {complex_path}")
-
-
-def app():
-    import argparse
-    parser = argparse.ArgumentParser(
-        description="Get receptor structure ready using PDBFixer and PDB2PQR.",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--file", type=str, help="Path to the input PDB/MMCIF file.")
-    parser.add_argument("--pdb-id", type=str, help="PDB ID for the input structure.")
-    parser.add_argument("--ligand", type=str, default=None, help="Residue name of the ligand to extract.")
-    parser.add_argument("--prefix", type=str, default=None, help="Prefix for output files.")
-    parser.add_argument("--pH", type=float, default=7.4, help="Target pH for protonation.")
-    args = parser.parse_args()
-    
-    if args.pdb_id and args.file:
-        raise ValueError("Provide either --file or --pdb-id, not both.")
-    if args.pdb_id:
-        get_receptor_ready(pdb_id=args.pdb_id, 
-                           ligand_resname=args.ligand, 
-                           output_prefix=args.prefix, 
-                           target_pH=args.pH)
-    if args.file:
-        get_receptor_ready(filename=args.file, 
-                           ligand_resname=args.ligand, 
-                           output_prefix=args.prefix, 
-                           target_pH=args.pH)
-
-
-if __name__ == "__main__":
-    app()

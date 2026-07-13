@@ -391,7 +391,7 @@ class ValidComplex(SimFileIO):
               ff_protein: str = "amber/protein.ff14SB.xml",
               ff_water: str = "amber/tip3p_standard.xml",
               solvent: str = 'tip3p',
-              box_padding: float = 1.0,
+              box_padding: float = 1.0, # 1.0 nm
               salt_conc: float = 0.15, # 0.15 M
               positive_ion: str = 'Na+',
               negative_ion: str = 'Cl-',

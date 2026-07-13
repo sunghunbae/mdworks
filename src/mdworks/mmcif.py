@@ -1,15 +1,11 @@
 from pathlib import Path
 from collections import defaultdict
 import logging
-import typer
-from typing import Annotated
-
 import Bio
 from Bio import Align
 from Bio.PDB.MMCIFParser import MMCIFParser
 from Bio.PDB.MMCIF2Dict import MMCIF2Dict
 from Bio.SeqUtils import seq1
-
 
 from pdbfixer import PDBFixer
 from openmm import (
@@ -18,9 +14,6 @@ from openmm import (
     LangevinIntegrator,
     CustomExternalForce,
 )
-
-
-app = typer.Typer(help='MMCIF tools to Get Protein Sequence or Convert to PDB')
 
 
 logger = logging.getLogger(__name__)
@@ -351,55 +344,3 @@ def get_info(path: str | Path) -> None:
             for kk, vv in w.items():
                 print(f'  {kk}: {vv}', end=" ")
         print()
-
-
-
-@app.command()
-def cif2seq(filename: Annotated[str, typer.Argument(help="Input .cif filename.")]):
-    """Get missing residue(s) and sequence from a MMCIF(.cif) file.
-
-    - Full sequence
-    - Coordinate sequence with missing residues (`-`)
-
-    Args:
-        cif_path (str): .cif file path.
-    """
-    coor_seq = get_residue_poly_sequences(filename)
-    auth_seq = get_entity_poly_sequences(filename)
-
-    aligner = Align.PairwiseAligner()
-    aligner.mode = 'local'
-    aligner.match_score = 1.0
-    aligner.open_gap_score = -1
-    aligner.extend_gap_score = 0
-    
-    # Perform global alignment (simple, without scoring)
-    alignments = aligner.align(auth_seq['1'], coor_seq['A'])
-    alignment = alignments[0]
-    print(alignment[0])
-    print(alignment[1])
-    print(f'aligner algorithm= {aligner.algorithm}')
-    print(f'  length={alignment.length}')
-    print(f'  aligned={alignment.aligned}')
-
-    ligand = get_nonpoly_chains_and_residues(filename)
-    print(ligand)
-
-
-
-@app.command()
-def cif2pdb(filename: Annotated[str, typer.Argument(help="Input .cif filename.")]):
-    """Convert to PDB file.
-
-    OpenMM energy minimization with heavy atom restraints
-
-    Args:
-        cif_path (str): .cif file path.
-    """
-    print(f'converting {filename} to .pdb')
-    convert_mmcif_to_pdb(filename)
-
-
-
-if __name__ == '__main__':
-    app()
