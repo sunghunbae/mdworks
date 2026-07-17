@@ -8,7 +8,7 @@ import mdworks.mmcif as mmcif
 import mdworks.ready as mdready
 
 from mdworks import ValidComplex
-from mdworks.protocol import Relax, Equilibrium, Production
+from mdworks.protocol import Relax, Equilibrium, Desmond, Production
 
 from rdkit import Chem
 from Bio import Align
@@ -198,6 +198,7 @@ def build(
 @app.command()
 def equi(
     infile: Annotated[str, typer.Argument(help="Filename (.pdb, .pdb.gz, .cif, .cif.gz) for prefix")],
+    desmond: Annotated[bool, typer.Option("--desmond", help="Use Desmond-like protocol")] = False,
     temperature: Annotated[float, typer.Option("--temperature", help="Temperature in Kelvin")] = 300.0,
     pressure: Annotated[float, typer.Option("--pressure", help="Pressure in Bar")] = 1.0,
     workdir: Annotated[str, typer.Option("--workdir", help="Working directory for the simulation")] = ".",
@@ -207,12 +208,21 @@ def equi(
     if not Path(infile).exists():
         raise FileNotFoundError(f"{infile} does not exist")
 
-    md = Equilibrium(infile,
-                temperature= temperature,
-                pressure= pressure, 
-                workdir= workdir, 
-                platform= platform, 
-                devices= devices)
+    if desmond:
+        md = Desmond(infile,
+                     temperature= temperature,
+                     pressure= pressure,
+                     workdir= workdir,
+                     platform= platform,
+                     devices= devices
+                     )
+    else:
+        md = Equilibrium(infile,
+                         temperature= temperature,
+                         pressure= pressure, 
+                         workdir= workdir, 
+                         platform= platform, 
+                         devices= devices)
     md.run()
 
 

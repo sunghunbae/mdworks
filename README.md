@@ -63,6 +63,12 @@ $ mdworks equi input_complex_cut_relaxed.pdb.gz
 
 # run production MD simulations
 $ mdworks prod --time 5.0 input_complex_cut_relaxed.pdb.gz
+
+# extend production MD simulations
+$ mdworks prod --time 10.0 input_complex_cut_relaxed.pdb.gz
+# Since 5.0 ns production simulation has been already completed,
+# only remaining 5.0 ns production simulation will be conducted.
+# The trajectories will be appended to the production .dcd file.
 ```
 
 ## Python package
@@ -118,9 +124,9 @@ Notes:
 | Stage               | Temperature (K) | Posres (kJ/mol/nm**2) | Friction (1/ps) | Time (ps) | Timestep (fs) | Tag |
 | :------------------ | :-------------- | :-------------------- | :-------------- | :-------- | :------------ | :-- |
 | Energy Minimization |                 |                 1000  |                 |           |   | _0_min |
-| Brownian            | 10              |                 1000  |         **50**  |      100  | 1 | _1_brown |
+| Brownian            | 10              |                 1000  |         **50**  |      100  | 1 | _1_brownian |
 | NVT cold            | 10              |                 1000  |              1  |       12  | 2 | _2_nvt_cold |
-| NPT cold            | 10              |                  200  |              1  |       12  | 2 | _3_nvt_cold |
+| NPT cold            | 10              |                  200  |              1  |       12  | 2 | _3_npt_cold |
 | NPT warm            | 10 ⟶ 300       |                   40  |              1  |       12  | 2 | _4_npt_warm |
 | NPT free            | 300             |                    0  |              1  |       24  | 2 | _5_npt_free |
 | NPT production      | 300             |                    0  |              1  |     user  | 2 or 4 (HMR) | _6_prod |

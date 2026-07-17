@@ -568,6 +568,32 @@ class MultiStage(SimFileIO):
         self.save_checkpoint(stage)
 
 
+    def _stage_NPT_cold(self, stage: int, **kwargs) -> None:
+        if self.load_checkpoint(stage):
+            return
+        T = getpar(kwargs, 'T', 10.0)
+        k = getpar(kwargs, 'k', 40.0)
+        (ps, dt) = getpar(kwargs, 't')
+        steps = int(1000 * ps / dt + 0.5)
+        friction = kwargs.get('friction', 1.0)
+        interval = kwargs.get('interval', 1000)
+        frequency = kwargs.get('frequency', 50)
+        logger.info(f'({stage}) NPT (T= {T} K, posres_k= {k} kJ/mol/nm**2, friction= {friction} 1/ps)')
+        logger.info(f'    t= {ps} ps, dt= {dt} fs, steps= {steps/1000}K')
+        # dt=2 fs t=500-1000 ps
+        self._add_barostat(frequency=frequency)
+        # reinitialize velocities
+        self._change_temperature(temperature=T, reset=True)
+        self._change_integrator(temperature=T, friction=friction, timestep=dt)
+        self._change_posres(k=k)
+        self._add_state_data_reporter(stage, steps, interval=interval)
+        # gradually decrease posres (it runs simulation.step())
+        # gradually heat up the system (it runs simulation.step())
+        self.simulation.step(steps)
+        self._del_reporter()
+        self.save_checkpoint(stage)
+
+
     def _stage_NVT_warm(self, stage: int, **kwargs) -> None:
         if self.load_checkpoint(stage):
             return

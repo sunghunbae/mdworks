@@ -241,7 +241,7 @@ class Production(MultiStage):
         return True
     
 
-    def run(self, tag: str = '5_prod') -> None:
+    def run(self, tag: str = 'prod') -> None:
         """Run production MD simulation."""
         logger.info(f"NPT production (T= {self.temperature})")
         logger.info(f'    t= {self.time}, dt= {self.timestep}, steps= {self.steps/1000}K')

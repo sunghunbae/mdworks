@@ -4,6 +4,7 @@ __all__ = ['Desmond',]
 """Unbiased Classical Molecular Dynamics"""
 
 from pathlib import Path
+from functools import partial
 from openmm import app, unit
 
 from openmmtools.testsystems import TestSystem
@@ -12,6 +13,7 @@ from .multistage import MultiStage
 from ..validcomplex import ValidComplex
 from ..utils import setup_logger
 
+import gzip
 import logging
 
 logger = logging.getLogger(__name__)
@@ -19,9 +21,78 @@ logger = logging.getLogger(__name__)
 
 class Desmond(MultiStage):
 
-    def __init__(self, complex: TestSystem | ValidComplex, quiet: bool = False):
-        super().__init__(complex, quiet=quiet)
-        setup_logger(logger, self.parent, self.prefix, quiet=quiet)
+    def __init__(self, 
+                 complex: TestSystem | ValidComplex,
+                 workdir: Path | str | None = None,
+                 platform: str = 'CUDA', 
+                 devices: str = '0',
+                 temperature: float = 300.0,
+                 pressure: float = 1.0,
+                 quiet: bool = False):
+        super().__init__(complex, workdir, platform, devices, quiet)
+        
+        self.pressure = pressure * unit.bar
+        self.stages = [
+            {
+                'tag': '0_min',
+                'description': 'Energy minimization', 
+                'maxiter': 5000, # or 0 for convergence
+                'tolerance': 0.1, # default 10
+                'interval': 10 },
+            {
+                'tag': '1_brownian',
+                'description': 'Brownian dynamics', 
+                't': (100., 1.0),
+                'T': 10,
+                'k': 1000,
+                'friction': 50, 
+                'interval': 1000 },
+            {
+                'tag': '2_nvt_cold',
+                'description': 'NVT with high positional restraints',
+                't': (12., 2.0),
+                'T': 10,
+                'k': 1000,
+                'friction': 1, 
+                'interval': 1000 },
+            {
+                'tag': '3_npt_cold',
+                'description': 'NPT with medium positional restraints',
+                't': (12., 2.0),
+                'T': 10,
+                'k': 200,
+                'friction': 1, 
+                'interval': 1000 },
+            {
+                'tag': '4_npt_warm',
+                'description': 'NPT with weak positional restraints and gradual heating',
+                't': (12., 2.0),
+                'T': (10., temperature, 10.),
+                'k': 40.,
+                'friction': 1,
+                'interval': 1000 },
+            {
+                'tag': '5_npt_free',
+                'description': 'NPT with no positional restraint',
+                't': (24., 2.0),
+                'T': temperature,
+                'k': 0.0,
+                'friction': 1,
+                'frequency': 50,
+                'interval': 1000 },
+        ]
+
+        self.stage_partials = [
+            partial(self._stage_energy_minimization, stage=0),
+            partial(self._stage_NVT_cold, stage=1),
+            partial(self._stage_NVT_cold, stage=2),
+            partial(self._stage_NPT_cold, stage=3),
+            partial(self._stage_NPT_warm, stage=4),
+            partial(self._stage_NPT_free, stage=5),
+        ]
+
+        assert len(self.stage_partials) == len(self.stages)
+        setup_logger(logger, self.workdir, self.prefix, quiet=quiet)
 
 
     def _stage_3(self, stage: int = 3) -> None:
@@ -152,7 +223,34 @@ class Desmond(MultiStage):
             self.simulation.step(self.steps)
 
 
-    def run(self,
+    def run(self) -> None:
+        """Run multi-stage equilibrium MD simulation."""
+        # check the last stage checkpoint
+        # if no checkpoint exists, stage_cpt_idx ends up with -1
+        stage_cpt_idx = len(self.stage_partials)-1
+        while stage_cpt_idx >= 0 and not self.load_checkpoint(stage_cpt_idx):
+            stage_cpt_idx -= 1
+        
+        # restart from the last stage checkpoint
+        for i, stage_sim in enumerate(self.stage_partials):
+            if i > stage_cpt_idx:
+                stage_sim(**self.stages[i])
+        
+        # final update
+        self.positions = self.simulation.context.getState(getPositions=True).getPositions()
+
+        outfile = f"{self.prefix}_equilibrated.pdb.gz"
+        with gzip.open(self.workdir / outfile, "wt") as f:
+            app.PDBFile.writeFile(self.topology, self.positions, f)
+
+        # create the empty file to mark completion
+        (self.workdir / f"{self.prefix}_EQUILIBRATED").touch(exist_ok=True)
+
+        logger.info(f"Equilibration complete!")
+        logger.info(f"Structure saved to {outfile}")
+
+
+    def run_obsolete(self,
             temperature: float = 300.0,
             pressure: float = 1.0, 
             timestep : float = 2.0,
@@ -160,8 +258,7 @@ class Desmond(MultiStage):
             hmr: bool = True,
             state_data_interval : float = 100,
             trajectory_interval : float = 100,
-            checkpoint_interval : float = 100,
-            workdir : str| Path | None = None):
+            checkpoint_interval : float = 100):
         """Run multi-stage MD simulation.
 
         Note:
@@ -177,11 +274,6 @@ class Desmond(MultiStage):
             checkpoint_interval (float, optional): checkpoint interval time in ps. Defaults to 100.
             workdir (str | Path | None, optional): output directory. Defaults to None (same directory as input).
         """
-        if workdir is None:
-            self.workdir = self.parent
-        elif isinstance(workdir, str):
-            self.workdir = Path(workdir)
-
         # production stage settings
         self.temperature = temperature * unit.kelvin
         self.pressure = pressure * unit.bar
@@ -193,6 +285,16 @@ class Desmond(MultiStage):
         else:
             self.timestep = timestep * unit.femtoseconds
         self.steps = int(self.time / self.timestep + 0.5)
+        
+        self.tags = [
+            '0_min', 
+            '1_brownian', 
+            '2_nvt_cold', 
+            '3_npt_cold', 
+            '4_npt_warm', 
+            '5_npt_free', 
+            '6_prod',
+            ]
         
         # state data
         self.state_data_path = self.workdir / f'{self.prefix}_{self.tags[-1]}.ene'
@@ -213,15 +315,7 @@ class Desmond(MultiStage):
         # log
         self.log_path = self.workdir / f'{self.prefix}.log'
 
-        self.tags = [
-            '0_min', 
-            '1_brownian', 
-            '2_nvt_cold', 
-            '3_npt_cold', 
-            '4_npt_warm', 
-            '5_npt_free', 
-            '6_prod',
-            ]
+        
         
         stage_settings = {
             1 : {
@@ -313,6 +407,6 @@ class Desmond(MultiStage):
                 f"\nThe last structure saved to {self.prefix}_final.pdb"
                 )
         
-        with open(workdir / f"{self.prefix}_final.pdb", "w") as f:
+        with open(self.workdir / f"{self.prefix}_final.pdb", "w") as f:
             positions = self.simulation.context.getState(getPositions=True).getPositions()
             app.PDBFile.writeFile(self.topology, positions, f)
