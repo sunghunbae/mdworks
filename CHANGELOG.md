@@ -1,5 +1,10 @@
+## 0.17.0
+- added `--desmond` option to `mdworks equi` command
+- added `relax` protocol
+- added `mdworks relax` command
+
 ## 0.12.0
-- added CLI `equilibrate` to run equilibrium MD simulation
+- added CLI `equi` to run equilibrium MD simulation
   
 ## 0.11.1
 - added implicit solvent option (`gbn2`, `obc2`)
