@@ -18,24 +18,23 @@ logger = logging.getLogger(__name__)
 
 
 def isolate(
-        pdb_file: str | Path, 
+        filename: str | Path, 
         ligand_resname: str, 
         output_ligand_file: str | Path) -> None:
     """
     Extract ligand from PDB file and save to a separate PDB file.
     """
-    pdb_file = Path(pdb_file)
+    filename = Path(filename)
     output_ligand_file = Path(output_ligand_file)
 
-    if not pdb_file.exists():
-        raise FileNotFoundError(f"{pdb_file} does not exist")
+    if not filename.exists():
+        raise FileNotFoundError(f"{filename} does not exist")
 
-    with open(pdb_file, "r") as f:
-        fixer = PDBFixer(pdbfile=f)
-        ligand_atoms = [atom for atom in fixer.topology.atoms() if atom.residue.name == ligand_resname]
+    fixer = PDBFixer(filename= filename.as_posix())
+    ligand_atoms = [atom for atom in fixer.topology.atoms() if atom.residue.name == ligand_resname]
 
     if not ligand_atoms:
-        raise ValueError(f"No atoms found for ligand with resname '{ligand_resname}' in {pdb_file}")
+        raise ValueError(f"No atoms found for ligand with resname '{ligand_resname}' in {filename}")
 
     # Create a new topology and positions for the ligand
     ligand_topology = Topology()
@@ -99,8 +98,9 @@ def receptor(
     So, if the receptor structure contains a ligand, it should be extracted and processed separately.
     """  
     if filename:
-        receptor_name = Path(filename).stem
-        workdir = Path(filename).parent
+        filename = Path(filename)
+        receptor_name = filename.stem
+        workdir = filename.parent
     elif pdb_id:
         receptor_name = pdb_id
         workdir = Path.cwd()
@@ -120,12 +120,11 @@ def receptor(
     complex_path = f"{output_prefix}_complex.pdb"
 
     if filename:
-        with open(filename, "r") as f:
-            logger.info(f"PDBFixer reading a PDB file: {filename}")
-            fixer = PDBFixer(pdbfile=f)
+        logger.info(f"PDBFixer reading a file: {filename}")
+        fixer = PDBFixer(filename= filename.as_posix())
     elif pdb_id:
         logger.info(f"PDBFixer downloading the PDB {pdb_id} structure from RCSB Protein Data Bank")
-        fixer = PDBFixer(pdbid=pdb_id)
+        fixer = PDBFixer(pdbid= pdb_id)
 
     if ligand_resname:
         ligand_output_file = f"{output_prefix}_{ligand_resname}.pdb"

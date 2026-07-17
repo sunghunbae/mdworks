@@ -160,7 +160,8 @@ class MultiStage(SimFileIO):
         if isinstance(complex, ValidComplex):
             self.prefix = complex.prefix
         elif isinstance(complex, Path) or isinstance(complex, str):
-            self.prefix = Path(complex).stem
+            p = Path(complex)
+            self.prefix = p.name.removesuffix("".join(p.suffixes))
         elif isinstance(complex, TestSystem):
             self.prefix = complex.name # the name of the test system
 

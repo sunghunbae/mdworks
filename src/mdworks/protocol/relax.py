@@ -20,7 +20,7 @@ import gzip
 logger = logging.getLogger(__name__)
 
 
-class Relax(MultiStage):
+class Relax(MultiStage, ValidComplex):
     def __init__(self, 
                  complex: TestSystem | ValidComplex, 
                  workdir: Path | str | None = None,
@@ -45,7 +45,7 @@ class Relax(MultiStage):
 
         self.stages = [
             {
-                'tag': 'relax',
+                'tag': 'relaxed',
                 'description': 'Restrained energy minimization', 
                 'maxiter': maxiter, # or 0 for convergence
                 'tolerance': tolerance, # default 10
@@ -77,7 +77,6 @@ class Relax(MultiStage):
         self.positions = self.simulation.context.getState(getPositions=True).getPositions()
 
         self.save_complex(filename = f"{self.prefix}_relaxed.pdb", compress=True)
-        self.save_ligand(filename= f"{self.prefix}_relaxed.sdf")
 
         # create the empty file to mark completion
         (self.workdir / f"{self.prefix}_RELAXED").touch(exist_ok=True)

@@ -45,13 +45,18 @@ class SimFileIO:
 
 
     def save_ligand(self, filename: str = "") -> None:
-        """Save the optimized (charged) ligand to an SDF file.
+        """Save the optimized and charged ligand to an SDF file.
+        
+        Note:
+            Atomic partial charges are saved as a property.
 
         Returns: 
             None
         """
-        if not self.rdmolH:
-            raise ValueError("we may need to fix the ligand first. use fix_ligand()")
+        try:
+            assert self.rdmolH
+        except:
+            raise ValueError("need to fix the ligand first. use fix_ligand()")
         
         if not filename:
             filename = self.workdir / f'{self.prefix}_ligand.sdf'
@@ -97,9 +102,10 @@ class SimFileIO:
 
     def save_complex(self, filename: str = "", compress: bool = True) -> None:
         if not filename:
-            if self.solvent_implicit:
+            try:
+                assert self.solvent_implicit
                 filename = self.workdir / f'{self.prefix}_system_implicit.pdb'
-            else:
+            except:
                 filename = self.workdir / f'{self.prefix}_system.pdb'
         
         filename = Path(filename)
@@ -116,9 +122,10 @@ class SimFileIO:
 
     def load_complex(self, filename: str = "") -> bool:
         if not filename:
-            if self.solvent_implicit:
+            try:
+                assert self.solvent_implicit
                 filename = self.workdir / f'{self.prefix}_system_implicit.pdb'
-            else:
+            except:
                 filename = self.workdir / f'{self.prefix}_system.pdb'
         
         filename = Path(filename)
@@ -147,9 +154,10 @@ class SimFileIO:
             if hmr:
                 filename = self.workdir / f"{self.prefix}_system_hmr.xml"
             else:
-                if self.solvent_implicit:
+                try:
+                    assert self.solvent_implicit
                     filename = self.workdir / f"{self.prefix}_system_implicit.xml"
-                else:
+                except:
                     filename = self.workdir / f"{self.prefix}_system.xml"
         
         filename = Path(filename)
@@ -179,9 +187,10 @@ class SimFileIO:
             if hmr:
                 filename = self.workdir / f"{self.prefix}_system_hmr.xml"
             else:
-                if self.solvent_implicit:
+                try:
+                    assert self.solvent_implicit
                     filename = self.workdir / f"{self.prefix}_system_implicit.xml"
-                else:
+                except:
                     filename = self.workdir / f"{self.prefix}_system.xml"
         
         filename = Path(filename)

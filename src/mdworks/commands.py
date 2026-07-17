@@ -136,6 +136,7 @@ def relax(
         vc.fix_ligand(smiles)
     
     vc.assign_ligand_charges(partial_charge_method = partial_charge_method)
+
     vc.build(ff_ligand = ff_ligand, ff_protein = ff_protein, solvent = solvent)
     
     md = Relax(vc, 
@@ -181,7 +182,6 @@ def build(
     vc.assign_ligand_charges(partial_charge_method = partial_charge_method)
     
     vc.save_protein()
-    vc.save_ligand()
     vc.build(
         ff_ligand = ff_ligand,
         ff_protein = ff_protein,
@@ -197,9 +197,9 @@ def build(
 
 @app.command()
 def equi(
-    infile: Annotated[str, typer.Argument(help="Input .pdb or .cif filename")],
-    temperature: Annotated[float, typer.Option("--temperature", help="Temperature for the simulation")] = 300.0,
-    pressure: Annotated[float, typer.Option("--temperature", help="Pressure for the simulation")] = 1.0,
+    infile: Annotated[str, typer.Argument(help="Filename (.pdb, .pdb.gz, .cif, .cif.gz) for prefix")],
+    temperature: Annotated[float, typer.Option("--temperature", help="Temperature in Kelvin")] = 300.0,
+    pressure: Annotated[float, typer.Option("--pressure", help="Pressure in Bar")] = 1.0,
     workdir: Annotated[str, typer.Option("--workdir", help="Working directory for the simulation")] = ".",
     platform: Annotated[str, typer.Option("--platform", help="Platform for the simulation (e.g., CUDA, OpenCL, CPU)")] = "CUDA",
     devices: Annotated[str, typer.Option("--devices", help="GPU devices for the simulation (e.g., '0', '0,1')")] = "0"):
@@ -219,12 +219,12 @@ def equi(
 
 @app.command()
 def prod(
-    infile: Annotated[str, typer.Argument(help="Input .pdb or .cif filename")],
-    temperature: Annotated[float, typer.Option("--temperature", help="Temperature for the simulation")] = 300.0,
-    pressure: Annotated[float, typer.Option("--temperature", help="Pressure for the simulation")] = 1.0,
+    infile: Annotated[str, typer.Argument(help="Filename (.pdb, .pdb.gz, .cif, .cif.gz) for prefix")],
+    temperature: Annotated[float, typer.Option("--temperature", help="Temperature in Kelvin")] = 300.0,
+    pressure: Annotated[float, typer.Option("--pressure", help="Pressure in Bar")] = 1.0,
     time: Annotated[float, typer.Option("--time", help="Simulation time in ns")] = 10.0,
     timestep: Annotated[float, typer.Option("--timestep", help="Simulation timestep in fs")] = 2.0,
-    hmr: Annotated[bool, typer.Option("--hmr", help="Whether to use HMR (Hydrogen Mass Repartitioning)")] = True,
+    hmr: Annotated[bool, typer.Option("--hmr/--no-hmr", help="Use HMR (Hydrogen Mass Repartitioning).")] = True,
     state_data_interval: Annotated[float, typer.Option("--state-data-interval", help="State data interval in ps")] = 100.0,
     trajectory_interval: Annotated[float, typer.Option("--state-data-interval", help="Trajectory interval in ps")] = 100.0,
     checkpoint_interval: Annotated[float, typer.Option("--state-data-interval", help="Checkpoint interval in ps")] = 100.0,
@@ -232,6 +232,7 @@ def prod(
     platform: Annotated[str, typer.Option("--platform", help="Platform for the simulation (e.g., CUDA, OpenCL, CPU)")] = "CUDA",
     devices: Annotated[str, typer.Option("--devices", help="GPU devices for the simulation (e.g., '0', '0,1')")] = "0"):
     """Run production MD"""
+
     if not Path(infile).exists():
         raise FileNotFoundError(f"{infile} does not exist")
 

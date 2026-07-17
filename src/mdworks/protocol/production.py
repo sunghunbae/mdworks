@@ -53,7 +53,8 @@ class Production(MultiStage):
         if isinstance(complex, Equilibrium):
             self.prefix = complex.prefix
         elif isinstance(complex, Path) or isinstance(complex, str):
-            self.prefix = Path(complex).stem
+            p = Path(complex)
+            self.prefix = p.name.removesuffix("".join(p.suffixes))
 
         setup_logger(logger, self.workdir, self.prefix, quiet=quiet)
 
@@ -255,7 +256,7 @@ class Production(MultiStage):
                 self._set_hmr()
             else:
                 T = self.temperature.value_in_unit(unit.kelvin)
-                f = self.friction.value_in_unit(1 / unit.picosecond)
+                f = self.friction.value_in_unit(1.0 / unit.picosecond)
                 dt = self.timestep.value_in_unit(unit.femtosecond)
                 self._change_temperature(temperature=T)
                 self._change_integrator(temperature=T, friction=f, timestep=dt)

@@ -373,7 +373,7 @@ class ValidComplex(SimFileIO):
         self.rdmolH = self._optimize()
 
 
-    def assign_ligand_charges(self, partial_charge_method: str ='am1bcc') -> None:
+    def assign_ligand_charges(self, partial_charge_method: str ='am1bcc', filename: str = '') -> None:
         """Assign ligand charges.
 
         Args:
@@ -385,11 +385,17 @@ class ValidComplex(SimFileIO):
         logger.info(f"partial charges assigned with {partial_charge_method}")
         self.off_mol = Molecule.from_rdkit(self.rdmolH)
         self.off_mol.assign_partial_charges(partial_charge_method=partial_charge_method)
+        # save to memory
         self.off_mol.to_file(self.mem_ligand_charges, file_format='sdf')
+        assert len(self.mem_ligand_charges.getvalue()) > 0, "partial charges are not assigned"
+        if not filename:
+            filename = self.workdir / f'{self.prefix}_ligand.sdf'
+        # save to file
+        self.off_mol.to_file(filename, file_format='sdf')
 
 
-    def load_ligand_charges(self, filename: str) -> None:
-        """Restore ligand partial charnges from an SDF file.
+    def import_ligand_charges(self, filename: str) -> None:
+        """Import previously computed ligand partial charnges from an SDF file.
 
         Args:
             filename (str): SDF filename.
