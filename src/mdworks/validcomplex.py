@@ -1,6 +1,7 @@
 __all__ = ['ValidComplex',]
 
 import io
+import gzip
 import logging
 import numpy as np
 
@@ -77,15 +78,17 @@ class ValidComplex(SimFileIO):
             quiet (bool, optional): whether to suppress logging. Defaults to False.
         """
         assert isinstance(in_file, str) or isinstance(in_file, Path)
-        assert Path(in_file).exists()
+        in_path = Path(in_file)
+        assert in_path.exists()
 
         # setup prefix and workdir
-        self.prefix = Path(in_file).stem
+        # remove all extensions and get the true stem: ex. x.pdb.gz -> x
+        self.prefix = in_path.name.removesuffix("".join(in_path.suffixes))
         if isinstance(workdir, str) or isinstance(workdir, Path):
             self.workdir = Path(workdir)
             self.workdir.mkdir(exist_ok=True)
         else:
-            self.workdir = Path(in_file).parent
+            self.workdir = in_path.parent
 
         self.mem_protein : io.StringIO = io.StringIO()
         self.mem_ligand : io.StringIO = io.StringIO()
@@ -101,12 +104,29 @@ class ValidComplex(SimFileIO):
         self.source : Chem.Mol = Chem.Mol()
         self.off_mol : Molecule = Molecule()
 
+        # solvent
+        self.solvent : str = 'tip3p'
+        self.solvent_implicit : bool = False
+
         # optimization
         self.max_displacement: float = max_displacement
         self.k: float = k
         self.max_iter: int = max_iter
 
-        self.fixer = PDBFixer(in_file)
+        if in_path.name.endswith(".pdb.gz"):
+            with gzip.open(in_file, "rt") as f:
+                self.fixer = PDBFixer(pdbfile= f) 
+                # pdbfile: file-like object from which the PDB file is to be read
+        elif in_path.name.endswith(".cif.gz"):
+            with gzip.open(in_file, "rt") as f:
+                self.fixer = PDBFixer(pdbxfile= f)
+                # pdbxfile: file-like object from which the PDBx/mmCIF file is to be read
+        else:
+            self.fixer = PDBFixer(filename= in_file)
+            # filename: name of the file to read. The format is determined automatically
+            # based on the filename extension, or if that is ambiguous, by looking at the
+            # file content
+
         self.protein_modeller = None
         self.ligand_modeller = None
         self.modeller = None
@@ -367,6 +387,16 @@ class ValidComplex(SimFileIO):
         self.off_mol.assign_partial_charges(partial_charge_method=partial_charge_method)
         self.off_mol.to_file(self.mem_ligand_charges, file_format='sdf')
 
+
+    def load_ligand_charges(self, filename: str) -> None:
+        """Restore ligand partial charnges from an SDF file.
+
+        Args:
+            filename (str): SDF filename.
+        """
+        logger.info(f"partial charges assigned with {filename}")
+        self.off_mol = Molecule.from_file(filename, file_format="sdf")
+
         
     def _add_explicit_solvent(self) -> None:
         """Solvate simulation box using addSolvent()."""
@@ -390,7 +420,7 @@ class ValidComplex(SimFileIO):
               ff_ligand: str = "openff-2.2.1.offxml", # Sage
               ff_protein: str = "amber/protein.ff14SB.xml",
               ff_water: str = "amber/tip3p_standard.xml",
-              solvent: str = 'tip3p',
+              solvent: str = "tip3p",
               box_padding: float = 1.0, # 1.0 nm
               salt_conc: float = 0.15, # 0.15 M
               positive_ion: str = 'Na+',
@@ -441,8 +471,14 @@ class ValidComplex(SimFileIO):
             self.modeller.topology,
             self.modeller.positions)
         
-        # force field
+        self.solvent = solvent
         if solvent in ['gbn2', 'obc2', 'gbn1', 'obc1']:
+            self.solvent_implicit = True
+        else:
+            self.solvent_implicit = False
+
+        # force field
+        if self.solvent_implicit:
             # implicit solvent model
             # Zn and other divalent ions are not supported in implicit solvent model and requires explicit solvent model.
             self.forcefield = app.ForceField(ff_protein, ff_water, f"implicit/{solvent}.xml")
@@ -454,7 +490,7 @@ class ValidComplex(SimFileIO):
         
         self.forcefield.registerTemplateGenerator(smirnoff.generator)
 
-        if solvent in ['gbn2', 'obc2', 'gbn1', 'obc1']:
+        if self.solvent_implicit:
             # implicit solvent model
             self.system = self.forcefield.createSystem(
                 self.modeller.topology,
@@ -468,11 +504,10 @@ class ValidComplex(SimFileIO):
             logger.info(f"system built with:")
             logger.info(f"  {ff_protein}")
             logger.info(f"  {ff_ligand}")
-            logger.info(f"  implicit/{solvent}")
+            logger.info(f"  implicit/{self.solvent}")
 
         else:
             # explicit solvent model
-            self.solvent = solvent
             self.box_padding = box_padding
             self.salt_conc = salt_conc
             self.positive_ion = positive_ion
@@ -501,7 +536,7 @@ class ValidComplex(SimFileIO):
 
         # hydrogen mass repartitioning (HMR)
         # ONLY for explicit solvent model.
-        if solvent not in ['gbn2', 'obc2', 'gbn1', 'obc1']:
+        if not self.solvent_implicit:
             self.system_hmr = self.forcefield.createSystem(
                 self.modeller.topology,
                 nonbondedMethod= app.PME,
@@ -514,41 +549,7 @@ class ValidComplex(SimFileIO):
             # HMR stage does not require posres
             self.save_system(hmr=True) # system has the positional restraints info.
             logger.info(f"system saved - {self.workdir / f'{self.prefix}_system_hmr.xml'}")
-
-
-    def save_protein(self) -> None:
-        """Save the fixed protein to a PDB file.
-
-        Returns:
-            None
-        """
-        filename = self.workdir / f'{self.prefix}_protein.pdb'
-        with open(filename, "w") as f:
-            app.PDBFile.writeFile(
-                self.protein_modeller.topology,
-                self.protein_modeller.positions,
-                f,
-                keepIds=True
-            )
-
-
-    def save_ligand(self) -> None:
-        """Save the optimized (charged) ligand to an SDF file.
-
-        Returns: 
-            None
-        """
-        if not self.rdmolH:
-            raise ValueError("we may need to fix the ligand first. use fix_ligand()")
-        
-        filename = self.workdir / f'{self.prefix}_ligand.sdf'
-
-        if len(self.mem_ligand_charges.getvalue()) > 0:
-            self.off_mol.to_file(filename, file_format='sdf')
-        else:
-            off_mol = Molecule.from_rdkit(self.rdmolH)
-            off_mol.to_file(filename, file_format='sdf')
-    
+                
 
     def _get_bonded_atom_pairs(self, topology) -> list:
         bonded_12 = [tuple(sorted([bond.atom1.index, bond.atom2.index])) for bond in topology.bonds()]

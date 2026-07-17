@@ -39,7 +39,36 @@ python -m ipykernel install --user --name='mdworks'
 jupyter lab
 ```
 
-# Usage
+# Command-line interface
+
+```sh
+$ mdworks --help
+
+$ mdworks ready --help
+
+# fix input PDB using PDBFixer and PDB2PQR
+$ mdworks ready input.pdb --ligand UNL
+
+# guess SMILES from a ligand PDB
+$ mdworks guess input_UNL.pdb
+
+# cut input PDB to reduce system size for MD
+$ mdworks cut  input_complex.pdb A:1-46,A:288-298
+
+$ mdworks relax --help
+
+# run restrained energy minimization (with implicit solvent)
+# partial charges are assigned with AM1-BCC by default
+$ mdworks relax input_complex_cut.pdb --smiles `cat input_UNL.smi`
+
+# build a MD system with explicit solvent
+$ mdworks build input_complex_cut_relaxed.pdb.gz
+
+# run multi-stage equilibration MD simulations
+$ mdworks equi input_complex_cut_relax
+```
+
+# Python package
 
 ```py
 from mdworks import ValidComplex

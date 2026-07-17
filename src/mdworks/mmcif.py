@@ -2,6 +2,7 @@ from pathlib import Path
 from collections import defaultdict
 import logging
 import Bio
+
 from Bio import Align
 from Bio.PDB.MMCIFParser import MMCIFParser
 from Bio.PDB.MMCIF2Dict import MMCIF2Dict
@@ -19,7 +20,7 @@ from openmm import (
 logger = logging.getLogger(__name__)
 
 
-def convert_mmcif_to_pdb(infile: str, find_missing_residues: bool = False) -> None:
+def convert_to_pdb(infile: str, find_missing_residues: bool = False) -> None:
     fixer = PDBFixer(infile)
 
     prefix = Path(infile).stem
@@ -331,7 +332,7 @@ def get_entity_poly_sequences(path):
 
 
 
-def get_info(path: str | Path) -> None:
+def info(path: str | Path) -> None:
     print("Biopython version:", Bio.__version__)
     poly = get_residue_poly_sequences(path)
     non_poly = get_nonpoly_chains_and_residues(path)

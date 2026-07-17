@@ -114,12 +114,12 @@ class Equilibrium(MultiStage):
         # final update
         self.positions = self.simulation.context.getState(getPositions=True).getPositions()
 
-        outfile = f"{self.prefix}_relaxed.pdb.gz"
+        outfile = f"{self.prefix}_equilibrated.pdb.gz"
         with gzip.open(self.workdir / outfile, "wt") as f:
             app.PDBFile.writeFile(self.topology, self.positions, f)
 
         # create the empty file to mark completion
-        (self.workdir / f"{self.prefix}_RELAXED").touch(exist_ok=True)
+        (self.workdir / f"{self.prefix}_EQUILIBRATED").touch(exist_ok=True)
 
         logger.info(f"Equilibration complete!")
         logger.info(f"Structure saved to {outfile}")
