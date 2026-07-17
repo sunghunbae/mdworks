@@ -93,9 +93,13 @@ md = Equilibrium(vc)
 md.run()
 ```
 
-# Protocols
+# Built-in Protocols
 
-## Multi-stage Equilibrium / Production
+## `Relax` (Restrained Energy Minimization)
+
+Energy minimization with positional restraints on heavy atoms (`k=1000`) in implicit solvent (`gbn2`). Similar protocol is also known as Amber Relaxation. AlphaFold’s relaxation protocol uses OpenMM with an Amber force field (typically amber99sb) and implicit solvent to perform iterative, restrained energy minimization. It resolves steric clashes and stereochemical violations by progressively weakening harmonic restraints on the backbone while minimizing the potential energy.
+
+## `Equilibrium` (Multi-stage Equilibrium)
 
 | Stage               | Temperature (K) | Posres (kJ/mol/nm**2) | Friction (1/ps) | Time (ps) | Timestep (fs) | Tag | 
 | :------------------ | :-------------- | :-------------------- | :-------------- | :-------- | :------------ | :-- |
@@ -104,9 +108,8 @@ md.run()
 | NVT warm            | 10 ⟶ 300       |                 1000  |              1  |      145  | 2 | _2_nvt_warm |
 | NPT posres          | 300             |            1000 ⟶ 0  |              1  |      300  | 2 | _3_npt_posres |
 | NPT free            | 300             |                    0  |              1  |      500  | 2 | _4_npt_free |
-| NPT production      | 300             |                    0  |              1  |     user  | 2 or 4 (HMR) | _5_prod |
 
-## Schrodinger Desmond-like Equilibrium
+## `Desmond` (Schrodinger Desmond Default Equilibrium)
 
 1. Energy Minimization
 1. Brownian Dynamics NVT, T = 10 K, small timesteps, and restraints on solute heavy atoms, 100ps, k=50
@@ -115,10 +118,10 @@ md.run()
 1. NPT and restraints on solute heavy atoms, 12ps, k=50
 1. NPT and no restraints, 24ps 
 
-Notes: 
+Notes on positional restraint force constant, `k`: 
 
-- 50 kcal/mol/A^2 is equal to 20,920 kJ/mol/nm^2 (1 kcal/mol/A^2 = 418.4 kJ/mol/nm^2)
-- scale to the typically used positional restraint force constant (1000 kJ/mol/nm^2)
+- `k=50` (kcal/mol/A^2) is equal to 20,920 (kJ/mol/nm^2) (1 kcal/mol/A^2 = 418.4 kJ/mol/nm^2)
+- `k` is scaled down to the typically used positional restraint force constant (1000 kJ/mol/nm^2) in the current protocol
 
 
 | Stage               | Temperature (K) | Posres (kJ/mol/nm**2) | Friction (1/ps) | Time (ps) | Timestep (fs) | Tag |
@@ -129,10 +132,7 @@ Notes:
 | NPT cold            | 10              |                  200  |              1  |       12  | 2 | _3_npt_cold |
 | NPT warm            | 10 ⟶ 300       |                   40  |              1  |       12  | 2 | _4_npt_warm |
 | NPT free            | 300             |                    0  |              1  |       24  | 2 | _5_npt_free |
-| NPT production      | 300             |                    0  |              1  |     user  | 2 or 4 (HMR) | _6_prod |
 
-
-### Brownian MD
 
 Brownian dynamics corresponds to:
 
@@ -146,3 +146,7 @@ Brownian dynamics corresponds to:
     - Ion placement adjustment
     - Avoids solute distortion
     - Prevents pressure spikes later
+
+## `Production` (Production MD)
+
+HMR (hydrogen mass repartitioning) is used by default to enable 4 femtosecond timestep.
