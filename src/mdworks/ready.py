@@ -16,6 +16,8 @@ import numpy
 import logging
 
 from copy import deepcopy
+
+from .editor import PDBEditor
 from .utils import setup_logger
 
 

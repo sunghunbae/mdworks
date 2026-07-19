@@ -1,6 +1,6 @@
 [project]
 name = "mdworks"
-version = "0.20.1"
+version = "0.21.0"
 description = "Streamlines preparation and equilibration of molecular complex for MD simulations"
 readme = "README.md"
 authors = [{name = "Sung-Hun Bae", email = "sunghun.bae@gmail.com"}]
@@ -37,6 +37,7 @@ compilers = { version = ">=1.11.0,<2", channel = "conda-forge" }
 rich = ">=14.3.2,<15"
 uv = ">=0.10.0,<0.11"
 pdb2pqr = ">=3.6.1,<4"
+gemmi = ">=0.7.5,<0.8"
 
 [tool.pixi.pypi-dependencies]
 typer = ">=0.21.1, <0.22"

@@ -85,6 +85,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/gcc-14.3.0-h0dff253_17.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/gcc_impl_linux-64-14.3.0-hb1e0a52_17.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/gcc_linux-64-14.3.0-h298d278_20.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/gemmi-0.7.5-py313hbaa079c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/gfortran-14.3.0-h76987e4_17.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/gfortran_impl_linux-64-14.3.0-h1a219da_17.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/gfortran_linux-64-14.3.0-h741da5e_20.conda
@@ -1431,6 +1432,22 @@ packages:
   purls: []
   size: 28918
   timestamp: 1770277530099
+- conda: https://conda.anaconda.org/conda-forge/linux-64/gemmi-0.7.5-py313hbaa079c_0.conda
+  sha256: 10ac77aa3cd42b193d003bdc7f64c1d32dba8e4ecefc18d9f78cab94a0237984
+  md5: 895c5a768147a9d479351bf75b641bf9
+  depends:
+  - __glibc >=2.17,<3.0.a0
+  - libgcc >=14
+  - libstdcxx >=14
+  - python >=3.13,<3.14.0a0
+  - python_abi 3.13.* *_cp313
+  - zlib-ng >=2.3.3,<2.4.0a0
+  license: MPL-2.0
+  license_family: OTHER
+  purls:
+  - pkg:pypi/gemmi?source=hash-mapping
+  size: 4326665
+  timestamp: 1772446412986
 - conda: https://conda.anaconda.org/conda-forge/linux-64/gfortran-14.3.0-h76987e4_17.conda
   sha256: 99c81907e46f0a95ae18810ea8b8055d8e3b70231318d36f5ae44f9cafcaff57
   md5: 329ef645bc2f75b4025cba573810e178
@@ -3421,7 +3438,7 @@ packages:
 - pypi: ./
   name: mdworks
   version: 0.20.1
-  sha256: 61e42171dd955c3608577750ad9f9fec6fc2ac389fe63728d0cb4813c08eaf14
+  sha256: a8023b743ab69fbe0bba477de406be88f111b4e354e2c7266bcf18b51c51ce79
   requires_dist:
   - twine>=6.2.0,<7
   requires_python: '>=3.11'
