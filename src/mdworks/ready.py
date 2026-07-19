@@ -4,13 +4,18 @@ from pdbfixer import PDBFixer
 from openmm.app import PDBFile, Topology, Modeller
 from openmm.unit import angstroms, nanometers
 from pdb2pqr.main import main_driver, build_main_parser
+from Bio import PDB
+
+import MDAnalysis as mda
 
 import re
+import numpy as np
 import shutil
 import subprocess
 import numpy
 import logging
 
+from copy import deepcopy
 from .utils import setup_logger
 
 
@@ -132,6 +137,20 @@ def receptor(
         isolate(filename or f"{pdb_id}.pdb", ligand_resname, ligand_output_file)
         logger.info(f"Isolated ligand {ligand_resname} saved to {ligand_output_file}")
 
+    logger.info(f"[Step 0] Disconnect bonds with Zinc atom(s) ...")
+    # Track down the Zinc atom index
+    zinc_atom_indices = [
+        atom.index for atom in fixer.topology.atoms() if "ZN" in atom.name.upper()
+    ]
+
+    # Rebuild the bond network, explicitly excluding any bonds involving the Zinc atom
+    clean_bonds = []
+    for bond in fixer.topology.bonds():
+        if bond[0].index not in zinc_atom_indices and bond[1].index not in zinc_atom_indices:
+            clean_bonds.append(bond)
+
+    # Overwrite the topology's bond dictionary with the filtered list
+    fixer.topology._bonds = clean_bonds
 
     logger.info(f"[Step 1] Fetching and Fixing {receptor_name} via PDBFixer ...")
 
@@ -232,35 +251,49 @@ def guess_smiles_from_pdb(filename: str, obabel: str = shutil.which("obabel")) -
 
 
 
-def parse_residue_ranges(range_string: str) -> list[tuple]:
+def parse_selection(spec_string: str) -> list[tuple]:
     """Parse residue range expressions
 
     Args:
-        range_string (str): example - "A:10-30,A:100-120,B:1-50"
+        spec_string (str): example - "A:10-30,A:100-120,B:1-50,C:1,D"
 
     Returns:
         list : [(chain_id, int(start), int(end)), ...]
     """
-    # Regex captures: chain ID (group 1), start residue (group 2), end residue (group 3)
-    pattern = r"([A-Za-z0-9]+):(\d+)-(\d+)"
-    matches = re.findall(pattern, range_string)
-    
-    parsed_ranges = []
-    for chain_id, start, end in matches:
-        parsed_ranges.append( (chain_id, int(start), int(end)) )
-    return parsed_ranges
+    # pattern = r"^(?:#(?P<model>\d+(?:\.\d+)*))?(?:\/(?P<chain>[A-Za-z0-9]+))?(?::(?P<residue>\d+(?:-\d+)?))?(?:@(?P<atom>[A-Za-z0-9*?]+))?$"
+    pattern = r"^(?P<chain>[A-Za-z0-9]+)?(?::(?P<residue>\d+(?:-\d+)?))?$"
+
+    parsed_specs = []
+    for sub_spec_string in spec_string.split(","):
+        match = re.match(pattern, sub_spec_string)
+        if match:
+            d = match.groupdict()
+            chain_id = d.get('chain', None)
+            i = None
+            j = None
+            if d.get('residue'):
+                ij = d.get('residue').split('-')
+                if len(ij) == 2:
+                    i = int(ij[0])
+                    j = int(ij[1])
+                elif len(ij) == 1:
+                    i = int(ij[0])
+                    j = None
+            parsed_specs.append((chain_id, i, j))
+
+    return parsed_specs
 
 
 def cut(
         filename: str, 
-        residues: str,
+        selection: str,
         output_prefix: str | None = None,
         quiet: bool = False) -> None:
     """Cut residues
 
     Args:
         filename (str): Input .pdb or .cif file
-        residues (str): Selection of residues. 
+        selection (str): Selection of chain:residues. 
             Example: `A:1-10,A:130-150,B:1-30`
             - chain and residue range is separated by `:`
             - residue range is defined by `-`
@@ -270,7 +303,7 @@ def cut(
     """
     receptor_name = Path(filename).stem
     workdir = Path(filename).parent
-    targets = parse_residue_ranges(residues)
+    targets = parse_selection(selection)
 
     if output_prefix is None:
         output_prefix = receptor_name
@@ -278,23 +311,224 @@ def cut(
     logging.getLogger().handlers.clear()
     setup_logger(logger, workdir, output_prefix, quiet=quiet)
 
-    output_pdb_path = f"{output_prefix}_cut.pdb"  
+    output_filename = f"{output_prefix}_cut.pdb"  
+
+    with open(filename, "r") as f:
+        logger.info(f"PDBFixer reading a PDB file: {filename}")
+        pdb = PDBFixer(pdbfile=f)
+        modeller = Modeller(pdb.topology, pdb.positions)
+        
+    residues_to_delete = []
+    for chain in modeller.topology.chains():
+        for residue in chain.residues():
+            resseq = int(residue.id)
+            for (chain_id, i, j) in targets:
+                if all([
+                    chain_id is None or chain_id == chain.id,
+                    i is None or (i <= resseq),
+                    j is None or (j >= resseq),
+                    ]):
+                    residues_to_delete.append(residue)
+    modeller.delete(residues_to_delete)
+
+    # Write intermediate fixed heavy-atom structure  
+    with open(output_filename, "w") as f:
+        PDBFile.writeFile(modeller.topology, modeller.positions, f, keepIds=True)
+        logger.info(f"Modified coordinates are saved to {output_filename}")
+
+
+
+def reorder(filename: str, 
+            output_prefix: str | None = None, 
+            quiet: bool = False):
+
+    receptor_name = Path(filename).stem
+    workdir = Path(filename).parent
+
+    if output_prefix is None:
+        output_prefix = receptor_name
+
+    logging.getLogger().handlers.clear()
+    setup_logger(logger, workdir, output_prefix, quiet=quiet)
+
+    output_filename = f"{output_prefix}_ordered.pdb"  
+
+    # 1. Load the structure
+    u = mda.Universe(filename)
+    
+    # 2. Sort the atoms by chainID using Python's sorted()
+    # MDAnalysis allows sorting by arbitrary atom attributes like 'chainID'
+    sorted_atoms = sorted(u.atoms, key=lambda atom: atom.chainID)
+
+    # 3. Group the sorted list back into a functional AtomGroup
+    sorted_group = mda.AtomGroup(sorted_atoms)
+
+    # 4. Write directly to a new PDB file
+    with mda.Writer(output_filename, sorted_group.n_atoms) as W:
+        W.write(sorted_group)
+        logger.info(f"Reordered coordinates saved to {output_filename}")
+
+
+def split_traj(filename: str, 
+            output_prefix: str | None = None, 
+            quiet: bool = False):
+
+    receptor_name = Path(filename).stem
+    workdir = Path(filename).parent
+
+    if output_prefix is None:
+        output_prefix = receptor_name
+
+    logging.getLogger().handlers.clear()
+    setup_logger(logger, workdir, output_prefix, quiet=quiet)
+
+    # 1. Load the structure
+    u = mda.Universe(filename)
+
+    # iterate through each model (frame)
+    for model in u.trajectory:
+        output_filename = f"{output_prefix}_{model.frame}.pdb"
+        # Select all atoms and write the current frame to a new PDB file
+        with mda.Writer(output_filename, u.atoms.n_atoms) as W:
+            W.write(u.atoms)
+            logger.info(f"Model {model.frame} saved to {output_filename}")
+
+
+class ModelSelect(PDB.Select):
+    """Custom selection class to filter for a specific model."""
+    def __init__(self, model_id):
+        self.model_id = model_id
+
+    def accept_model(self, model):
+        # Only accept the model matching the targeted ID
+        return 1 if model.id == self.model_id else 0
+
+
+def split(filename: str, 
+          output_prefix: str | None = None, 
+          quiet: bool = False):
+
+    receptor_name = Path(filename).stem
+    workdir = Path(filename).parent
+
+    if output_prefix is None:
+        output_prefix = receptor_name
+
+    # Initialize the PDB parser and IO object
+    parser = PDB.PDBParser(QUIET=quiet)
+    io = PDB.PDBIO()
+    
+    # Load the structure hierarchy
+    structure = parser.get_structure("protein", filename)
+    io.set_structure(structure)
+    
+    # Iterate through every model in the structure
+    for model in structure:
+        output_filename = f"{output_prefix}_{model.id}.pdb"
+        
+        # Write the structure out, applying the model filter
+        io.save(output_filename, select=ModelSelect(model.id))
+        logger.info(f"Model {model.id} saved to {output_filename}")
+
+
+def rename(filename: str, 
+           chain_mapping: dict, 
+           output_prefix: str | None = None, 
+           quiet: bool = False):
+
+    receptor_name = Path(filename).stem
+    workdir = Path(filename).parent
+
+    if output_prefix is None:
+        output_prefix = receptor_name
+    
+    output_filename = f"{output_prefix}_rename.pdb"
+
+    parser = PDB.PDBParser(QUIET=quiet)
+    
+    structure = parser.get_structure("protein", filename)
+    
+    for model in structure:
+        # Extract and detach targeted chains to prevent collision errors
+        chains_to_modify = {}
+        for old_id in list(model.child_dict.keys()):
+            if old_id in chain_mapping:
+                chains_to_modify[old_id] = model.child_dict[old_id]
+                model.detach_child(old_id)
+        
+        # Assign new IDs and reattach them to the model hierarchy
+        for old_id, chain_obj in chains_to_modify.items():
+            new_id = chain_mapping[old_id]
+            chain_obj.id = new_id
+            model.add(chain_obj)
+            
+    io = PDB.PDBIO()
+    io.set_structure(structure)
+    io.save(output_filename)
+
+
+
+def _reorder(filename: str, 
+            output_prefix: str | None = None, 
+            quiet: bool = False):
+    """Unsuccessful implementation"""
+    receptor_name = Path(filename).stem
+    workdir = Path(filename).parent
+
+    if output_prefix is None:
+        output_prefix = receptor_name
+
+    logging.getLogger().handlers.clear()
+    setup_logger(logger, workdir, output_prefix, quiet=quiet)
+
+    output_filename = f"{output_prefix}_ordered.pdb"  
 
     with open(filename, "r") as f:
         logger.info(f"PDBFixer reading a PDB file: {filename}")
         pdb = PDBFixer(pdbfile=f)
         modeller = Modeller(pdb.topology, pdb.positions)
 
-    residues_to_delete = []
-    for chain in modeller.topology.chains():
-        for residue in chain.residues():
-            resseq = int(residue.id)
-            if any([(chain.id == chain_id) and (start <= resseq <= end) for (chain_id, start, end) in targets]):
-                residues_to_delete.append(residue)
+    # Assuming `modeller` is your existing Modeller object
+    old_topology = modeller.topology
+    old_positions = modeller.positions
 
-    modeller.delete(residues_to_delete)
+    # 1. Get the list of chains and sort them by chain.id
+    sorted_chains = sorted(old_topology.chains(), key=lambda chain: chain.id)
+
+    # 2. Create a new Topology object and mapping for atoms
+    new_topology = Topology()
+    new_positions = []
+    atom_map = {}
+
+    # 3. Add chains and residues in the sorted order
+    for chain in sorted_chains:
+        new_chain = new_topology.addChain(chain.id)
+        for residue in chain.residues():
+            new_residue = new_topology.addResidue(
+                residue.name, new_chain, residue.id, residue.insertionCode
+            )
+            for atom in residue.atoms():
+                new_atom = new_topology.addAtom(
+                    atom.name, atom.element, new_residue, atom.id, atom.formalCharge
+                )
+                atom_map[atom] = new_atom
+                new_positions.append(deepcopy(old_positions[atom.index]))
+
+    # 4. Copy over the bonds using the new atom references
+    for bond in old_topology.bonds():
+        # Ensure both atoms in the bond exist in the new map
+        if bond[0] in atom_map and bond[1] in atom_map:
+            new_topology.addBond(
+                atom_map[bond[0]], atom_map[bond[1]], bond.type, bond.order
+            )
+
+    if old_topology.getPeriodicBoxVectors() is not None:
+        new_topology.setPeriodicBoxVectors(old_topology.getPeriodicBoxVectors())
+
+    # 5. Initialize the updated Modeller
+    modeller = Modeller(new_topology, new_positions)
 
     # Write intermediate fixed heavy-atom structure  
-    with open(output_pdb_path, "w") as f:
+    with open(output_filename, "w") as f:
         PDBFile.writeFile(modeller.topology, modeller.positions, f, keepIds=True)
-        logger.info(f"Modified coordinates are saved to {output_pdb_path}")
+        logger.info(f"Reordered coordinates are saved to {output_filename}")

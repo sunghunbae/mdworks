@@ -1,5 +1,6 @@
 import shutil
 import typer
+import json
 
 from typing import Annotated, Optional
 from pathlib import Path
@@ -101,11 +102,41 @@ def guess(
 @app.command()
 def cut(
     infile: Annotated[str, typer.Argument(help="Input .pdb or .cif filename.")],
-    residues: Annotated[str, typer.Argument(help="Residues to remove: ex. A:1-30,A:200-230,B:1-10")] = ""):
+    selection: Annotated[str, typer.Argument(help="Select chain:residues to remove: ex. A:1-30,A:200-230,B:1-10,C,D:1")] = ""):
     """(Optional) Cut and reduce protein structure for MD"""
     if not Path(infile).exists():
         raise FileNotFoundError(f"{infile} does not exist")
-    mdready.cut(filename=infile, residues=residues)
+    mdready.cut(filename=infile, selection=selection)
+
+
+@app.command()
+def reorder(
+    infile: Annotated[str, typer.Argument(help="Input .pdb or .cif filename.")]):
+    """(Optional) Reorder atoms by chain id"""
+    if not Path(infile).exists():
+        raise FileNotFoundError(f"{infile} does not exist")
+    mdready.reorder(filename=infile)
+
+
+@app.command()
+def split(
+    infile: Annotated[str, typer.Argument(help="Input .pdb or .cif filename.")]):
+    """(Optional) Split models"""
+    if not Path(infile).exists():
+        raise FileNotFoundError(f"{infile} does not exist")
+    mdready.split(filename=infile)
+
+@app.command()
+def rename(
+    infile: Annotated[str, typer.Argument(help="Input .pdb or .cif filename.")],
+    chain_mapping: Annotated[str, typer.Argument(help="Chain id mapping.")],
+    ):
+    """(Optional) Rename chain id"""
+    if not Path(infile).exists():
+        raise FileNotFoundError(f"{infile} does not exist")
+    chain_mapping_str = json.loads(chain_mapping)
+    mdready.rename(filename=infile, chain_mapping=chain_mapping_str)
+    
 
 
 @app.command()
