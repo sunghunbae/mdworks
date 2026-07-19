@@ -28,7 +28,7 @@ class PDBEditor:
     """
 
     def __init__(self, 
-                 structure: gemmi.Structure, 
+                 structure: gemmi.Structure | None = None, 
                  model_index: int = 0):
         self.structure = structure
         self.model_index = model_index
@@ -109,13 +109,16 @@ class PDBEditor:
         drop = [c for c in self.chain_names() if c not in keep]
         return self.remove_chains(drop)
 
-    def reorder_chains(self, order: Sequence[str]) -> "PDBEditor":
+
+    def reorder_chains(self, order: Sequence[str] | None = None) -> "PDBEditor":
         """Reorder chains in the model. `order` must be a permutation of
         the existing chain IDs (use keep_chains/remove_chains first if you
         also want to drop some)."""
         model = self.model
-        current = set(self.chain_names())
-        if set(order) != current:
+        current = self.chain_names()
+        if not order:
+            order = sorted(list(current))
+        if set(order) != set(current):
             raise ValueError(
                 f"reorder_chains requires a full permutation of {sorted(current)}, "
                 f"got {sorted(order)}"
@@ -199,51 +202,27 @@ class PDBEditor:
         return [(r.name, r.seqid.num) for r in self._get_chain(chain_id)]
 
     def summary(self) -> str:
-        lines = [f"{len(self.model)} chain(s):"]
-        for c in self.model:
-            lines.append(f"  {c.name}: {len(c)} residues")
+        lines = []
+        for model_idx, model in enumerate(self.structure, start=1):
+            lines.append(f"model {model_idx}")
+            for chain in model:
+                residues = [f"{res.name:<3} {res.seqid.num}" for res in chain]
+                n = len(residues)
+                if n == 1:
+                    lines.append(f"  chain {chain.name} ({n:>3} residues): {residues[0]}")
+                else:
+                    lines.append(f"  chain {chain.name} ({n:>3} residues): {residues[0]:<7} ... {residues[-1]}")
+                # non standard residues
+                for residue in chain:
+                    if residue.is_water():
+                        continue
+                    # look up the chemical component details in Gemmi's table
+                    chem_comp = gemmi.find_tabulated_residue(residue.name)
+                    # check if the residue name is missing or explicitly non-standard
+                    if chem_comp is None or not chem_comp.is_standard():
+                        # Identify if it is a modified polymer or a ligand block
+                        res_type = "Ligand/Unknown" if chem_comp is None else chem_comp.kind.name
+                        lines.append(f"    non-standard residue {residue.name:<3} {residue.seqid.num} {res_type}")
+
         return "\n".join(lines)
 
-
-def remove_terminal_missing_residues(fixer, chain_ids=None) -> dict:
-    """Drop N-/C-terminal entries from fixer.missingResidues in place, so a
-    subsequent fixer.addMissingAtoms() leaves chain termini untouched and
-    only fills internal gaps. Keeps the built system minimal.
-
-    Call this after fixer.findMissingResidues() and before
-    fixer.findMissingAtoms() / fixer.addMissingAtoms().
-
-    Parameters
-    ----------
-    fixer : pdbfixer.PDBFixer
-        A PDBFixer instance that has already had findMissingResidues() called.
-    chain_ids : optional iterable of str
-        If given, only strip termini for these chain IDs (by chain.id, e.g.
-        "A"); other chains' termini are left alone and will still be filled.
-        If None (default), strips termini for every chain.
-
-    Returns
-    -------
-    dict
-        The entries that were removed, keyed the same way as
-        fixer.missingResidues, in case you want to log/inspect what got
-        skipped.
-    """
-    chains = list(fixer.topology.chains())
-    restrict = set(chain_ids) if chain_ids is not None else None
-
-    removed = {}
-    for key in list(fixer.missingResidues.keys()):
-        chain_idx, res_idx = key
-        chain = chains[chain_idx]
-
-        if restrict is not None and chain.id not in restrict:
-            continue
-
-        n_present = len(list(chain.residues()))
-        is_n_terminal = res_idx == 0
-        is_c_terminal = res_idx == n_present
-        if is_n_terminal or is_c_terminal:
-            removed[key] = fixer.missingResidues.pop(key)
-
-    return removed

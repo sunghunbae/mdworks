@@ -79,11 +79,11 @@ def mmcif2pdb(filename: Annotated[str, typer.Argument(help="Input .cif filename.
 def ready(
     infile: Annotated[str, typer.Argument(help="Input .pdb or .cif filename.")],
     ligand: Annotated[str, typer.Option("--ligand", help="Ligand residue name")] = "",
-    pH: Annotated[float, typer.Option("--pH", help="Target pH for protonation")] = 7.4):
+    obabel: Annotated[str, typer.Option("--obabel", help="Path to the obabel executable")] = shutil.which("obabel"),
+    pH: Annotated[float, typer.Option("--pH", help="Target pH for protonation")] = 7.4,
+    ):
     """Get protein complex system ready for MD"""
-    if not Path(infile).exists():
-        raise FileNotFoundError(f"{infile} does not exist")
-    mdready.receptor(filename=infile, ligand_resname=ligand, target_pH=pH)
+    mdready.complex(filename=infile, ligand_resname=ligand, obabel=obabel, target_pH=pH)
 
 
 @app.command()
@@ -104,38 +104,33 @@ def cut(
     infile: Annotated[str, typer.Argument(help="Input .pdb or .cif filename.")],
     selection: Annotated[str, typer.Argument(help="Select chain:residues to remove: ex. A:1-30,A:200-230,B:1-10,C,D:1")] = ""):
     """(Optional) Cut and reduce protein structure for MD"""
-    if not Path(infile).exists():
-        raise FileNotFoundError(f"{infile} does not exist")
     mdready.cut(filename=infile, selection=selection)
 
 
 @app.command()
-def reorder(
-    infile: Annotated[str, typer.Argument(help="Input .pdb or .cif filename.")]):
+def peek(filename: Annotated[str, typer.Argument(help="Input .pdb or .cif filename.")]):
+    """(Optional) Show summary of model(s) and chain(s)"""
+    mdready.summary(filename=filename)
+
+
+@app.command()
+def reorder(filename: Annotated[str, typer.Argument(help="Input .pdb or .cif filename.")]):
     """(Optional) Reorder atoms by chain id"""
-    if not Path(infile).exists():
-        raise FileNotFoundError(f"{infile} does not exist")
-    mdready.reorder(filename=infile)
+    mdready.reorder(filename=filename)
 
 
 @app.command()
-def split(
-    infile: Annotated[str, typer.Argument(help="Input .pdb or .cif filename.")]):
+def split(filename: Annotated[str, typer.Argument(help="Input .pdb or .cif filename.")]):
     """(Optional) Split models"""
-    if not Path(infile).exists():
-        raise FileNotFoundError(f"{infile} does not exist")
-    mdready.split(filename=infile)
+    mdready.split(filename=filename)
+
 
 @app.command()
-def rename(
-    infile: Annotated[str, typer.Argument(help="Input .pdb or .cif filename.")],
-    chain_mapping: Annotated[str, typer.Argument(help="Chain id mapping.")],
+def rename(filename: Annotated[str, typer.Argument(help="Input .pdb or .cif filename.")],
+    chain_map: Annotated[str, typer.Argument(help="Chain id map. Ex. A:B,B:C,D:C")],
     ):
     """(Optional) Rename chain id"""
-    if not Path(infile).exists():
-        raise FileNotFoundError(f"{infile} does not exist")
-    chain_mapping_str = json.loads(chain_mapping)
-    mdready.rename(filename=infile, chain_mapping=chain_mapping_str)
+    mdready.rename(filename=filename, chain_map=chain_map)
     
 
 
