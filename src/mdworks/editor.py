@@ -2,8 +2,16 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Iterable, Sequence
+from collections import defaultdict
 
 import gemmi
+import string
+import logging
+
+
+logger = logging.getLogger(__name__)
+
+
 
 
 class PDBEditor:
@@ -62,6 +70,11 @@ class PDBEditor:
         when you still need the original in memory."""
         return PDBEditor(self.structure.clone(), self.model_index)
 
+    def to_mmcif_str(self) -> str:
+        cif_doc = self.structure.make_mmcif_document()
+        cif_string = cif_doc.as_string()
+        return cif_string
+
     # ------------------------------------------------------------------ #
     # Internal helpers
     # ------------------------------------------------------------------ #
@@ -81,6 +94,57 @@ class PDBEditor:
             )
         return chain
 
+    def _chain_id_order(self, char):
+        if char.isupper():
+            return (0, char)  # Highest priority (0)
+        elif char.islower():
+            return (1, char)  # Medium priority (1)
+        elif char.isdigit():
+            return (2, char)  # Lowest priority (2)
+        else:
+            return (3, char)  # Fallback for symbols/punctuation
+        
+    def new_chains_for_non_std_residues(self) -> "PDBEditor":
+        """
+        Moves specified non-standard residues out of their original chains 
+        and puts them all into a brand new chain with a unique ID.
+        """
+        chain_ids = self.chain_names()
+        
+        std_chain_ids = set(string.ascii_uppercase + string.ascii_lowercase + string.digits) # 62
+        unused_chain_ids = sorted(list(std_chain_ids - set(chain_ids)), key=self._chain_id_order)
+
+        for model_idx, model in enumerate(self.structure, start=1):
+            new_chains = defaultdict(list)
+            for chain in model:
+                residues = [f"{res.name:<3} {res.seqid.num}" for res in chain]
+                n = len(residues)
+                residues_to_delete = []
+                for res_idx, residue in enumerate(chain):
+                    if residue.is_water():
+                        continue
+                    # look up the chemical component details in Gemmi's table
+                    chem_comp = gemmi.find_tabulated_residue(residue.name)
+                    # check if the residue name is missing or explicitly non-standard
+                    if n == 1 or chem_comp is None or not chem_comp.is_standard():
+                        # Identify if it is a modified polymer or a ligand block
+                        w = unused_chain_ids.pop(0) # take out the first candidate
+                        new_chains[w].append(residue.clone())
+                        residues_to_delete.append(res_idx)
+                        logger.info(f"assign a new chain id {w} to {chain.name} {residue.name:<3} {residue.seqid.num}")
+                # remove residue(s)
+                for res_idx in sorted(residues_to_delete, reverse=True):
+                    del chain[res_idx] # delete residues from the original chain backward
+            # add new chain(s)
+            for new_chain_id, residues in new_chains.items():
+                if residues:
+                    new_chain = gemmi.Chain(new_chain_id)
+                    for res in residues:
+                        new_chain.add_residue(res)
+                    model.add_chain(new_chain)
+
+        return self
+    
     # ------------------------------------------------------------------ #
     # Chain-level operations
     # ------------------------------------------------------------------ #
@@ -136,6 +200,7 @@ class PDBEditor:
         chain.name = new_id
         return self
 
+    
     # ------------------------------------------------------------------ #
     # Residue-level operations
     # ------------------------------------------------------------------ #
@@ -191,6 +256,36 @@ class PDBEditor:
         for offset, res in enumerate(chain):
             res.seqid = gemmi.SeqId(start + offset, " ")
         return self
+
+
+    def find_zn_coord_cys(self, model_idx: int = 0, cutoff: float = 3.5) -> set:
+        """Find Cysteine residues possibly coordinating a zinc atom.
+
+        Args:
+            filename (str): _description_
+            model_idx (int, optional): _description_. Defaults to 0.
+            cutoff (float, optional): _description_. Defaults to 3.5.
+                Although ideal Zn-SG(CYS) distance is 2.34 A, here we use 3.5 A as initial
+                cutoff to identify Cys residues around a zinc atom.
+
+        Returns:
+            set: {(chain_id, resseq), ...}
+        """
+        model = self.structure[model_idx]
+        ns = gemmi.NeighborSearch(model, self.structure.cell, 5.0).populate()
+        zn_cys = set()
+        for chain in model:
+            for res in chain:
+                if res.name != 'ZN':
+                    continue
+                zn_atom = res[0] # there must be only one atom in the ZN residue
+                logger.info(f"Found a zinc atom {chain.name} {res.seqid.num}")
+                for mark in ns.find_atoms(zn_atom.pos, '\0', radius=cutoff):
+                    cra = mark.to_cra(model)
+                    if cra.residue.name == 'CYS' and cra.atom.name == 'SG':
+                        zn_cys.add((cra.chain.name, cra.residue.seqid.num))
+                        logger.info(f"Found a zinc coordinating CYS at {cra.chain.name} {cra.residue.seqid.num}")
+        return zn_cys
 
     # ------------------------------------------------------------------ #
     # Introspection

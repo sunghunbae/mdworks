@@ -144,7 +144,9 @@ class ValidComplex(SimFileIO):
         logger.info(f"workdir= {self.workdir}")
         logger.info(f"prefix= {self.prefix}")
 
-        self._add_missing_atoms()
+        # self._add_missing_atoms()
+        # this task is done by ready.complex()
+        
         self._sort_protein_and_ligand_residues()
 
 
