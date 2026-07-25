@@ -1,20 +1,24 @@
 from __future__ import annotations
 
+__all__ = ['Editor',]
+
 from pathlib import Path
 from typing import Iterable, Sequence
 from collections import defaultdict
 
 import re
-import gemmi
+import shutil
+import subprocess
 import string
 import logging
 
+import gemmi
 
+from .utils import setup_logger
 logger = logging.getLogger(__name__)
 
 
-
-class PDBEditor:
+class Editor:
     """Load once, chain edits, write once.
     A thin, chainable wrapper around gemmi.Structure for the structure-editing
     tasks that come up repeatedly when preparing PDB/mmCIF files for MD setup:
@@ -27,7 +31,7 @@ class PDBEditor:
     Example
     -------
     >>> (
-    ...     PDBEditor.load("input.cif")
+    ...     Editor.load("input.cif")
     ...     .remove_chains(["C"])
     ...     .remove_residues("A", [45, 46, 47])
     ...     .reorder_chains(["B", "A"])
@@ -40,48 +44,54 @@ class PDBEditor:
     def __init__(self, 
                  structure: gemmi.Structure | None = None,
                  model_index: int = 0,
-                 prefix: str = ''):
+                 prefix: str = '',
+                 quiet: bool = False):
         self.structure = structure
         self.model_index = model_index
         self.prefix = prefix
         self.sel = gemmi.Selection()
+        workdir = Path('.')
+
+        logging.getLogger().handlers.clear()
+        setup_logger(logger, workdir, self.prefix, quiet=quiet)
 
     # ------------------------------------------------------------------ #
     # Construction / IO
     # ------------------------------------------------------------------ #
 
     @classmethod
-    def load(cls, path: str | Path, model_index: int = 0) -> "PDBEditor":
+    def load(cls, path: str | Path, model_index: int = 0, quiet: bool = False) -> "Editor":
         """Read a PDB, mmCIF, or mmJSON file (format inferred from contents)."""
         p = Path(path)
         structure = gemmi.read_structure(str(p))
         structure.setup_entities()
         prefix =  p.name.removesuffix("".join(p.suffixes))
-        return cls(structure, model_index= model_index, prefix=prefix)
+        return cls(structure, model_index= model_index, prefix=prefix, quiet=quiet)
 
 
     def write(self, 
               path: str | Path | None = None, 
-              minimal: bool = False, 
-              tag: str = 'out', 
-              split: bool = False) -> "PDBEditor":
-        """Write to disk. Format is inferred from the file extension
-        (.pdb / .ent -> PDB, .cif / .mmcif -> mmCIF)."""
+              minimal: bool = False,
+              format: str = 'cif',
+              tag: str = '', 
+              split: bool = False) -> "Editor":
+        """Write structure to a file"""
         if path is None:
-            p = Path(f'{self.prefix}_{tag}.cif')
+            output_path = Path(f'{self.prefix}_{tag}.{format}')
         else:
-            p = Path(path)
+            output_path = Path(path)
+            format = 'pdb' if 'pdb' in output_path.name else 'cif'
 
         if not split:
-            if p.suffix.lower() in (".cif", ".mmcif"):
+            if format in ('cif', 'mmcif'):
                 doc = self.structure.make_mmcif_document() if not minimal \
                     else self.structure.make_mmcif_headers()
-                doc.write_file(str(p))
+                doc.write_file(str(output_path))
             else:
-                self.structure.write_pdb(str(p))
+                self.structure.write_pdb(str(output_path))
         else:
             for model_idx, model in enumerate(self.structure, start=1):
-                p = Path(f"{self.prefix}_{model_idx}.cif") # tag is ignored
+                output_path = Path(f"{self.prefix}_{model_idx}.{format}") # tag is ignored
                 single_model_st = gemmi.Structure()   
                 # Preserve original metadata if desired (e.g., cell, spacegroup)
                 try:
@@ -96,23 +106,39 @@ class PDBEditor:
                 # Add a copy of the current model to the new structure
                 # (Using .clone() prevents altering or corrupting the source object)
                 single_model_st.add_model(model.clone())
-                if p.suffix.lower() in (".cif", ".mmcif"):
+                if format in  ("cif", "mmcif"):
                     doc = single_model_st.structure.make_mmcif_document() if not minimal \
                         else single_model_st.structure.make_mmcif_headers()
-                    doc.write_file(str(p))
+                    doc.write_file(str(output_path))
                 else:
-                    single_model_st.structure.write_pdb(str(p))
+                    single_model_st.structure.write_pdb(str(output_path))
 
+        return self
+        
+
+    def clone(self) -> "Editor":
+        """Return an independent deep copy, useful before a destructive edit
+        when you still need the original in memory."""
+        return Editor(self.structure.clone(), self.model_index)
+
+
+    def extract(self) -> "Editor":
+        return Editor(self.sel.copy_structure_selection(self.structure), self.model_index)
+    
+
+    def delete(self, invert: bool = False) -> "Editor":
+        if invert:
+            self.sel.remove_not_selected(self.model)
+        else:
+            self.sel.remove_selected(self.model)
         return self
 
     
-        
-
-    def clone(self) -> "PDBEditor":
-        """Return an independent deep copy, useful before a destructive edit
-        when you still need the original in memory."""
-        return PDBEditor(self.structure.clone(), self.model_index)
-
+    def merge(self, other: Editor) -> "Editor":
+        for chain in other.model:
+            self.model.add_chain(chain.clone())
+        return self
+    
 
     def to_mmcif_str(self) -> str:
         cif_doc = self.structure.make_mmcif_document()
@@ -125,6 +151,30 @@ class PDBEditor:
         return pdb_string
 
 
+    @staticmethod
+    def pdb_to_smiles(pdbfile: str, smifile: str = '', obabel: str = shutil.which("obabel")) -> None:
+        try:
+            if not smifile:
+                p = Path(pdbfile)
+                prefix = p.name.removesuffix("".join(p.suffixes))
+                smifile = f"{prefix}.smi"
+            result = subprocess.run([obabel, "-ipdb", pdbfile, "-osmi"], 
+                                    capture_output=True, 
+                                    text=True, 
+                                    check=True
+                                    )
+            output = result.stdout.strip()
+            if output:
+                # ex. <SMILES> <Name>
+                smiles, name = output.split(maxsplit=1)
+                with open(smifile, "w") as f:
+                    f.write(f"{smiles}\n")
+                logger.info(f"SMILES: {smiles}")
+            else:
+                raise ValueError(f"Could not guess SMILES from {pdbfile}.")
+        except subprocess.CalledProcessError as e:
+            raise ValueError(f"Error occurred while running obabel on {pdbfile}: {e}")
+        
     # ------------------------------------------------------------------ #
     # Internal helpers
     # ------------------------------------------------------------------ #
@@ -159,13 +209,42 @@ class PDBEditor:
             return (3, char)  # Fallback for symbols/punctuation
 
 
-    def _get_next_chain_id(self) -> str:
+    def _get_unused_chain_ids(self) -> list[str]:
         chain_ids = set(self.chain_names())
-        unused_chain_ids = sorted(list(self.std_chain_ids - chain_ids), key=PDBEditor._chain_id_order)
-        return unused_chain_ids.pop(0)
+        return sorted(list(self.std_chain_ids - chain_ids), key=Editor._chain_id_order)
 
 
-    def select(self, expr: str) -> "PDBEditor":
+    def _reset_residue_flag(self):
+        # Reset flags first — they persist across runs/selections.
+        for chain in self.model:
+            for residue in chain:
+                residue.flag = '\0'
+
+
+    def _count_sel(self) -> dict:
+        c = {}
+        for chain in self.sel.chains(self.model):
+            c[chain.name] = 0
+            for residue in self.sel.residues(chain):
+                c[chain.name] += 1
+
+        return c
+
+
+    def _merge_sel(self, other_sel: gemmi.Selection, flag: chr = 'x') -> gemmi.Selection:
+        """
+        Merge other Selection with self.sel gemmi.Selection object
+        """
+        for sel in (self.sel, other_sel):
+            for chain in sel.chains(self.model):
+                for residue in sel.residues(chain):
+                    residue.flag = flag
+                    print(residue)
+
+        return gemmi.Selection().set_residue_flags(flag)
+    
+
+    def select(self, expr: str) -> "Editor":
         """Parse Ambertools style chain/residue selection expressions and 
         generate gemmi.Selection filter.
 
@@ -178,12 +257,16 @@ class PDBEditor:
         pattern = r"^(?:(?P<chain>[A-Za-z0-9]+):)?(?P<resname_or_resseq>[A-Za-z0-9]+)(?:-(?P<resseq_end>[0-9]+))?$"
 
         self.sel = gemmi.Selection()
+        self._reset_residue_flag()
 
+        selections = []
         for sub_expr in expr.split(","):
             match = re.match(pattern, sub_expr)
             if match:
                 spec = match.groupdict()
-                chain_id = spec.get('chain', '*')
+                chain_id = spec.get('chain')
+                if chain_id is None:
+                    chain_id = '*'
                 res_start = spec.get('resname_or_resseq')
                 res_end = spec.get('resseq_end')
                 if res_start.isdigit():
@@ -193,30 +276,20 @@ class PDBEditor:
                         cid = f'//{chain_id}/{res_start}'
                 else:
                     cid = f'//{chain_id}/({res_start})'
-                self.sel = self.sel | gemmi.Selection(cid) # OR (Union)
+                selections.append(gemmi.Selection(cid))
+        
+        flag = 'x'
+        for sel in selections:
+            for chain in sel.chains(self.model):
+                for residue in sel.residues(chain):
+                    residue.flag = flag
 
+        self.sel = gemmi.Selection().set_residue_flags(flag)
+        logger.info(f"selected residues: {self._count_sel()}")
+        
         return self
 
-
-    def delete(self, invert: bool = False) -> "PDBEditor":
-        if invert:
-            self.sel.remove_not_selected(self.model)
-        else:
-            self.sel.remove_selected(self.model)
-        return self
-
-    
-    def merge(self, other: PDBEditor) -> "PDBEditor":
-        for chain in other.model:
-            self.model.add_chain(chain.clone())
-        return self
-
-
-    def extract(self) -> "PDBEditor":
-        extracted = self.sel.copy_structure_selection(self.structure)
-        return PDBEditor(extracted)
-    
-    # def extract(self, resname: str) -> "PDBEditor":
+    # def extract(self, resname: str) -> "Editor":
     #     target_chain_id = None
     #     target_residue = None
     #     for chain in self.model:
@@ -236,13 +309,14 @@ class PDBEditor:
     #     st = gemmi.Structure()
     #     st.add_model(model)
 
-    #     return PDBEditor(st) 
+    #     return Editor(st) 
 
-    def new_chains_for_non_std_residues(self) -> "PDBEditor":
+    def new_chains_for_non_std_residues(self) -> "Editor":
         """
         Moves specified non-standard residues out of their original chains 
         and puts them all into a brand new chain with a unique ID.
         """
+        ununsed_chain_ids = self._get_unused_chain_ids()
         for model_idx, model in enumerate(self.structure, start=1):
             new_chains = defaultdict(list)
             for chain in model:
@@ -250,14 +324,12 @@ class PDBEditor:
                 n = len(residues)
                 residues_to_delete = []
                 for res_idx, residue in enumerate(chain):
-                    if residue.is_water():
-                        continue
                     # look up the chemical component details in Gemmi's table
                     chem_comp = gemmi.find_tabulated_residue(residue.name)
                     # check if the residue name is missing or explicitly non-standard
                     if n == 1 or chem_comp is None or not chem_comp.is_standard():
                         # Identify if it is a modified polymer or a ligand block
-                        w = self._get_next_chain_id()
+                        w = ununsed_chain_ids.pop(0)
                         new_chains[w].append(residue.clone())
                         residues_to_delete.append(res_idx)
                         logger.info(f"assign a new chain id {w} to {chain.name} {residue.name:<3} {residue.seqid.num}")
@@ -265,7 +337,7 @@ class PDBEditor:
                 for res_idx in sorted(residues_to_delete, reverse=True):
                     del chain[res_idx] # delete residues from the original chain backward
             # add new chain(s)
-            for new_chain_id, residues in new_chains.items():
+            for new_chain_id, residues in sorted(new_chains.items()):
                 if residues:
                     new_chain = gemmi.Chain(new_chain_id)
                     for res in residues:
@@ -280,7 +352,7 @@ class PDBEditor:
     # Chain-level operations
     # ------------------------------------------------------------------ #
 
-    def remove_chains(self, chain_ids: Iterable[str]) -> "PDBEditor":
+    def remove_chains(self, chain_ids: Iterable[str]) -> "Editor":
         """Delete one or more chains by ID.
 
         Note: gemmi's underlying remove_chain() silently no-ops on an
@@ -298,14 +370,14 @@ class PDBEditor:
             model.remove_chain(cid)
         return self
 
-    def keep_chains(self, chain_ids: Iterable[str]) -> "PDBEditor":
+    def keep_chains(self, chain_ids: Iterable[str]) -> "Editor":
         """Keep only the listed chains, dropping everything else."""
         keep = set(chain_ids)
         drop = [c for c in self.chain_names() if c not in keep]
         return self.remove_chains(drop)
 
 
-    def reorder_chains(self, order: Sequence[str] | None = None) -> "PDBEditor":
+    def reorder_chains(self, order: Sequence[str] | None = None) -> "Editor":
         """Reorder chains in the model. `order` must be a permutation of
         the existing chain IDs (use keep_chains/remove_chains first if you
         also want to drop some)."""
@@ -349,24 +421,24 @@ class PDBEditor:
         return parsed_specs
 
 
-    def rename_chain(self, old_id: str, new_id: str) -> "PDBEditor":
+    def rename_chain(self, old_id: str, new_id: str) -> "Editor":
             chain = self._get_chain(old_id)
             chain.name = new_id
             return self
 
 
-    def rename_chains(self, chain_map: str) -> "PDBEditor":
+    def rename_chains(self, chain_map: str) -> "Editor":
         """Rename chain id(s)"""
-        parsed_map = PDBEditor._parse_chain_id_mapping(chain_map)
+        parsed_map = Editor._parse_chain_id_mapping(chain_map)
         old_ids = list(parsed_map.keys())
         chain_ids = self.chain_names()
         assert set(old_ids).issubset(set(chain_ids)), "invalid chain id(s)"
-        
+        unused_chain_ids = self._get_unused_chain_ids()
         # resolve conflict with intermediate chain id(s)
         resolved = {}
         for k, v in parsed_map.items():
             if v in chain_ids:
-                w = self._get_next_chain_id()
+                w = unused_chain_ids.pop(0)
                 self = self.rename_chain(v, w)
                 resolved[v] = w
 
@@ -380,28 +452,28 @@ class PDBEditor:
         return self
 
 
-    def remove_waters(self) -> "PDBEditor":
+    def remove_waters(self) -> "Editor":
         self.model.remove_waters()
         return self
 
 
-    def remove_ligands_and_waters(self) -> "PDBEditor":
+    def remove_ligands_and_waters(self) -> "Editor":
         self.model.remove_ligands_and_waters()
         return self
 
 
-    def remove_hydrogens(self) -> "PDBEditor":
+    def remove_hydrogens(self) -> "Editor":
         self.model.remove_hydrogens()
         return self
 
 
-    def remove_alternative_conformations(self) -> "PDBEditor":
+    def remove_alternative_conformations(self) -> "Editor":
         """Collapse altlocs down to a single conformer (highest occupancy)."""
         self.model.remove_alternative_conformations()
         return self
 
 
-    def renumber_residues(self, chain_id: str, start: int = 1) -> "PDBEditor":
+    def renumber_residues(self, chain_id: str, start: int = 1) -> "Editor":
         """Renumber a chain's residues sequentially starting at `start`,
         clearing insertion codes."""
         chain = self._get_chain(chain_id)
@@ -455,12 +527,12 @@ class PDBEditor:
         for model_idx, model in enumerate(self.structure, start=1):
             lines.append(f"model {model_idx}")
             for chain in model:
-                residues = [f"{res.name:<3} {res.seqid.num}" for res in chain]
+                residues = [f"{res.name:>3} {res.seqid.num:>4}" for res in chain]
                 n = len(residues)
                 if n == 1:
-                    lines.append(f"  chain {chain.name} ({n:>3} residues): {residues[0]}")
+                    lines.append(f"  chain {chain.name} ({n:>3} residues): {residues[0]:<8}")
                 else:
-                    lines.append(f"  chain {chain.name} ({n:>3} residues): {residues[0]:<7} ... {residues[-1]}")
+                    lines.append(f"  chain {chain.name} ({n:>3} residues): {residues[0]:<8} ... {residues[-1]}")
                 # non standard residues
                 for residue in chain:
                     if residue.is_water():
@@ -469,8 +541,6 @@ class PDBEditor:
                     chem_comp = gemmi.find_tabulated_residue(residue.name)
                     # check if the residue name is missing or explicitly non-standard
                     if chem_comp is None or not chem_comp.is_standard():
-                        # Identify if it is a modified polymer or a ligand block
-                        res_type = "Ligand/Unknown" if chem_comp is None else chem_comp.kind.name
-                        lines.append(f"    non-standard residue {residue.name:<3} {residue.seqid.num} {res_type}")
+                        lines.append(f"    non-standard residue  {residue.name:>3} {residue.seqid.num:>4}")
 
         print("\n".join(lines))

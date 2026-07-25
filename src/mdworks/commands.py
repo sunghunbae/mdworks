@@ -1,49 +1,52 @@
 import shutil
-import typer
-import json
+import cyclopts
 
-from typing import Annotated, Optional
 from pathlib import Path
 
 import mdworks.mmcif as mmcif
 import mdworks.ready as mdready
 
-from mdworks.editor import PDBEditor
-from mdworks import ValidComplex
+from mdworks import Editor, ValidComplex
 from mdworks.protocol import Relax, Equilibrium, Desmond, Production
 
 from rdkit import Chem
 from Bio import Align
 
 
-app = typer.Typer(help='mdworks')
+def _get_version() -> str:
+    from mdworks import __version__
+    return __version__
 
 
-def version_callback(value: bool):
-    if value:
-        from mdworks import __version__
-        print(f"mdworks version: {__version__}")
-        raise typer.Exit()
+# Cyclopts ships a built-in --version handler, so there's no need for a
+# manual version_callback / @app.callback() the way Typer required.
+app = cyclopts.App(name="mdworks", help="mdworks", version=_get_version)
 
+# def command(posistional_only, /, standard(both), *, key_words_only):
 
-@app.callback()
-def main(
-    version: Optional[bool] = typer.Option(None, "--version", callback=version_callback, is_eager=True)):
-    pass
+@app.command
+def mmcifinfo(filename: str, /):
+    """Get information from mmCIF
 
-
-@app.command()
-def mmcifinfo(filename: Annotated[str, typer.Argument(help="Input .cif filename.")]):
-    """(mmCIF) Get information"""
+    Parameters
+    ----------
+    filename: str
+        Input .cif filename.
+    """
     mmcif.info(filename)
 
 
-@app.command()
-def mmcif2seq(filename: Annotated[str, typer.Argument(help="Input .cif filename.")]):
-    """(mmCIF) Get missing residue(s) and sequence
+@app.command
+def mmcif2seq(filename: str, /):
+    """Get missing residue(s) and sequence from mmCIF
 
     - Full sequence
     - Coordinate sequence with missing residues (`-`)
+
+    Parameters
+    ----------
+    filename: str
+        Input .cif filename.
     """
     coor_seq = mmcif.get_residue_poly_sequences(filename)
     auth_seq = mmcif.get_entity_poly_sequences(filename)
@@ -53,7 +56,7 @@ def mmcif2seq(filename: Annotated[str, typer.Argument(help="Input .cif filename.
     aligner.match_score = 1.0
     aligner.open_gap_score = -1
     aligner.extend_gap_score = 0
-    
+
     # Perform global alignment (simple, without scoring)
     alignments = aligner.align(auth_seq['1'], coor_seq['A'])
     alignment = alignments[0]
@@ -68,97 +71,220 @@ def mmcif2seq(filename: Annotated[str, typer.Argument(help="Input .cif filename.
     print(ligand)
 
 
-@app.command()
-def mmcif2pdb(filename: Annotated[str, typer.Argument(help="Input .cif filename.")]):
-    """(mmCIF) Convert to PDB"""
+@app.command
+def mmcif2pdb(filename: str, /):
+    """Convert mmCIF to PDB
+
+    Parameters
+    ----------
+    filename: str
+        Input .cif filename.
+    """
     print(f'converting {filename} to .pdb')
-    mmcif.convert_to_pdb(filename)
+    Editor.load(filename).write(format='pdb')
 
 
-@app.command()
-def peek(filename: Annotated[str, typer.Argument(help="Input .pdb or .cif filename.")]):
-    """(Optional) Peek and show summary of model(s) and chain(s)"""
-    PDBEditor.load(filename).summary()
+@app.command
+def pdb2mmcif(filename: str, /):
+    """Convert PDB to mmCIF
+
+    Parameters
+    ----------
+    filename: str
+        Input .cif filename.
+    """
+    print(f'converting {filename} to .cif')
+    Editor.load(filename).write(format='cif')
 
 
-@app.command()
-def smiles(filename: Annotated[str, typer.Argument(help="Input ligand .pdb")],
-          obabel: Annotated[str, typer.Option("--obabel", help="Path to the obabel executable")] = shutil.which("obabel")):
-    """(Optional) SMILES from a ligand .pdb file"""
-    if obabel is None:
-        raise NotImplementedError("Error: requires obabel executable.")
-    mdready.pdb_to_smiles(filename, obabel)
+@app.command
+def peek(filename: str, /):
+    """Peek and show summary of model(s) and chain(s)
+
+    Parameters
+    ----------
+    filename: str
+        Input .pdb or .cif filename.
+    """
+    Editor.load(filename).summary()
 
 
-@app.command()
-def delete(filename: Annotated[str, typer.Argument(help="Input .pdb or .cif filename.")],
-           selection: Annotated[str, typer.Argument(help="Select chain:residues to remove: ex. A:1-30,A:200-230,B:1-10,C,D:1")] = "",
-           invert: Annotated[bool, typer.Option("--invert", help="Invert selection")] = False,
-           tag: Annotated[str, typer.Argument(help="Output tag")] = 'del',
-           ):
-    """(Optional) Delete chain(s) and residue(s)"""
-    PDBEditor.load(filename).select(expr=selection).delete(invert=invert).write(tag=tag)
+@app.command
+def pdb2smiles(filename: str, /, *, obabel: str = shutil.which("obabel")):
+    """SMILES from a ligand .pdb file
+
+    Parameters
+    ----------
+    filename: str
+        Input ligand .pdb
+    obabel: str
+        Path to the obabel executable
+    """
+    Editor.pdb_to_smiles(filename, obabel)
 
 
-@app.command()
-def reorder(filename: Annotated[str, typer.Argument(help="Input .pdb or .cif filename.")],
-            tag: Annotated[str, typer.Argument(help="Output tag")] = 'ord',):
-    """(Optional) Reorder chain(s) by chain id"""
-    PDBEditor.load(filename).reorder_chains().write(tag=tag)
+@app.command
+def delete(
+    filename: str,
+    selection: str = "",
+    tag: str = 'del',
+    /,
+    *,
+    invert: bool = False,
+):
+    """Delete chain(s) and residue(s)
+
+    Parameters
+    ----------
+    filename: str
+        Input .pdb or .cif filename.
+    selection: str
+        Select chain:residues to remove: ex. A:1-30,A:200-230,B:1-10,C,D:1
+    tag: str
+        Output tag
+    invert: bool
+        Invert selection
+    """
+    Editor.load(filename).select(expr=selection).delete(invert=invert).write(tag=tag)
 
 
-@app.command()
-def rename(filename: Annotated[str, typer.Argument(help="Input .pdb or .cif filename.")],
-           chain_map: Annotated[str, typer.Argument(help="Chain id map. Ex. A:B,B:C,D:C")],
-           tag: Annotated[str, typer.Argument(help="Output tag")] = 'ren',
-    ):
-    """(Optional) Rename chain id(s)"""
-    PDBEditor.load(filename).rename_chains(chain_map= chain_map).write(tag=tag)
+@app.command
+def reorder(filename: str, /, *, tag: str = 'ord'):
+    """Reorder chain(s) by chain id
+
+    Parameters
+    ----------
+    filename: str
+        Input .pdb or .cif filename.
+    tag: str
+        Output tag
+    """
+    Editor.load(filename).reorder_chains().write(tag=tag)
 
 
-@app.command()
-def split(filename: Annotated[str, typer.Argument(help="Input .pdb or .cif filename.")]):
-    """(Optional) Split and write individual model(s)"""
-    PDBEditor.load(filename).write(split=True)
+@app.command
+def rename(filename: str, chain_map: str, /, *, tag: str = 'ren'):
+    """Rename chain id(s)
+
+    Parameters
+    ----------
+    filename: str
+        Input .pdb or .cif filename.
+    chain_map: str
+        Chain id map. Ex. A:B,B:C,D:C
+    tag: str
+        Output tag
+    """
+    Editor.load(filename).rename_chains(chain_map=chain_map).write(tag=tag)
 
 
-@app.command()
-def ready(filename: Annotated[str, typer.Argument(help="Input .pdb or .cif filename.")],
-          ligand: Annotated[str, typer.Option("--ligand", help="Ligand residue name")] = "",
-          waters: Annotated[bool, typer.Option("--waters/--no-waters", help="Keep waters or not")] = False,
-          separate_hetgens: Annotated[bool, typer.Option("--separate-hetgens/--no-separate-hetgens", help="Separate chains for hetgens (Zn, ligand, ...)")] = True,
-          zinc: Annotated[bool, typer.Option("--zinc/--no-zinc", help="Handle zinc related issue")] = True,
-          terminals: Annotated[bool, typer.Option("--terminal/--no-terminal", help="Add missing residues at N/C-terminals or not")] = False,
-          obabel: Annotated[str, typer.Option("--obabel", help="Path to the obabel executable")] = shutil.which("obabel"),
-          pH: Annotated[float, typer.Option("--pH", help="Target pH for protonation")] = 7.4,
-    ):
-    """Get system ready for MD"""
-    mdready.complex(filename=filename,
-                    ligand_resname=ligand, 
-                    waters=waters, 
-                    separate_hetgens=separate_hetgens,
-                    zinc= zinc,
-                    terminals = terminals,
-                    obabel=obabel, 
-                    target_pH=pH)
+@app.command
+def split(filename: str, /):
+    """Split and write individual model(s)
+
+    Parameters
+    ----------
+    filename: str
+        Input .pdb or .cif filename.
+    """
+    Editor.load(filename).write(split=True)
 
 
-@app.command()
-def relax(filename: Annotated[str, typer.Argument(help="Input .pdb or .cif filename")],
-          smiles: Annotated[str, typer.Option("--smiles", help="Ligand SMILES")] = "",
-          ligand: Annotated[str, typer.Option("--ligand", help="Ligand residue name")] = "",
-          charge: Annotated[str, typer.Option("--charge", help="Partial charge method for ligand.")] = "am1bcc",
-          ff_ligand: Annotated[str, typer.Option("--ff-ligand", help="Force field for ligand")] = "openff-2.2.1.offxml",
-          ff_protein: Annotated[str, typer.Option("--ff-protein", help="Force field for protein")] ="amber/protein.ff14SB.xml",
-          solvent: Annotated[str, typer.Option("--solvent", help="Solvent model (gbn2/obc2/gbn1/obc1).")] = "gbn2",
-          posres: Annotated[float, typer.Option("--posres", help="Force constant for positional restraints")] = 1000.0,
-          maxiter: Annotated[int, typer.Option("--maxiter", help="Max. iteration")] = 5000,
-          tolerance: Annotated[float, typer.Option("--tolerance", help="Tolerance")] = 0.1,
-          workdir: Annotated[str, typer.Option("--workdir", help="Working directory for the simulation")] = ".",
-          platform: Annotated[str, typer.Option("--platform", help="Platform for the simulation (e.g., CUDA, OpenCL, CPU)")] = "CUDA",
-          devices: Annotated[str, typer.Option("--devices", help="GPU devices for the simulation (e.g., '0', '0,1')")] = "0",
-          ):
-    """Build an implicit solvent system and run restrained energy minimization"""
+@app.command
+def ready(
+    filename: str,
+    /,
+    *,
+    ligand: str = "",
+    waters: bool = False,
+    separate_hetgens: bool = True,
+    zinc: bool = True,
+    terminals: bool = False,
+    obabel: str | None = shutil.which("obabel"),
+    ph: float = 7.4,
+):
+    """Get system ready for MD
+
+    Parameters
+    ----------
+    filename: str
+        Input .pdb or .cif filename.
+    ligand: str
+        Ligand residue name
+    waters: bool
+        Keep waters or not
+    separate_hetgens: bool
+        Separate chains for hetgens (Zn, ligand, ...)
+    zinc: bool
+        Handle zinc related issue
+    terminals: bool
+        Add missing residues at N/C-terminals
+    obabel: str
+        Path to the obabel executable
+    ph: float
+        Target pH for protonation
+    """
+    mdready.complex(
+        filename=filename,
+        ligand_resname=ligand,
+        waters=waters,
+        separate_hetgens=separate_hetgens,
+        zinc=zinc,
+        terminals=terminals,
+        obabel=obabel,
+        target_ph=ph,
+    )
+
+
+@app.command
+def relax(
+    filename: str,
+    /,
+    *,
+    smiles: str = "",
+    ligand: str = "",
+    charge: str = "am1bcc",
+    ff_ligand: str = "openff-2.2.1.offxml",
+    ff_protein: str = "amber/protein.ff14SB.xml",
+    solvent: str = "gbn2",
+    posres: float = 1000.0,
+    maxiter: int = 5000,
+    tolerance: float = 0.1,
+    workdir: str = ".",
+    platform: str = "CUDA",
+    devices: str = "0",
+):
+    """Build an implicit solvent system and run restrained energy minimization
+
+    Parameters
+    ----------
+    filename: str
+        Input .pdb or .cif filename
+    smiles: str
+        Ligand SMILES
+    ligand: str
+        Ligand residue name
+    charge: str
+        Partial charge method for ligand.
+    ff_ligand: str
+        Force field for ligand
+    ff_protein: str
+        Force field for protein
+    solvent: str
+        Solvent model (gbn2/obc2/gbn1/obc1).
+    posres: float
+        Force constant for positional restraints
+    maxiter: int
+        Max. iteration
+    tolerance: float
+        Tolerance
+    workdir: str
+        Working directory for the simulation
+    platform: str
+        Platform for the simulation (e.g., CUDA, OpenCL, CPU)
+    devices: str
+        GPU devices for the simulation (e.g., '0', '0,1')
+    """
     if ligand:
         smi_files = list(Path.cwd().glob(f"*{ligand}.smi"))
         assert len(smi_files) == 1, "more than one .smi files found. use --smiles instead"
@@ -170,40 +296,75 @@ def relax(filename: Annotated[str, typer.Argument(help="Input .pdb or .cif filen
         assert Chem.MolFromSmiles(smiles) is not None, f"Invalid SMILES string: {smiles}"
 
     vc = ValidComplex(filename)
-    
+
     if smiles:
         vc.fix_ligand(smiles)
 
-    vc.assign_ligand_charges(partial_charge_method = charge)
-    # if we use 'import' for ligand charges, ligand chain id and residue number are unknown and will be 
+    vc.assign_ligand_charges(partial_charge_method=charge)
+    # if we use 'import' for ligand charges, ligand chain id and residue number are unknown and will be
     # set to 'UNK' and '0', respectively.
 
-    vc.build(ff_ligand = ff_ligand, ff_protein = ff_protein, solvent = solvent, posres= posres)
-    em = Relax(vc, 
-               maxiter = maxiter, 
-               tolerance = tolerance, 
-               workdir = workdir, 
-               platform = platform, 
-               devices = devices)
+    vc.build(ff_ligand=ff_ligand, ff_protein=ff_protein, solvent=solvent, posres=posres)
+    em = Relax(
+        vc,
+        maxiter=maxiter,
+        tolerance=tolerance,
+        workdir=workdir,
+        platform=platform,
+        devices=devices,
+    )
     em.run()
 
 
-@app.command()
-def build(filename: Annotated[str, typer.Argument(help="Input .pdb or .cif filename")],
-          smiles: Annotated[str, typer.Option("--smiles", help="Ligand SMILES")] = "",
-          ligand: Annotated[str, typer.Option("--ligand", help="Ligand residue name")] = "",
-          ff_ligand: Annotated[str, typer.Option("--ff-ligand", help="Force field for ligand")] = "openff-2.2.1.offxml",
-          ff_protein: Annotated[str, typer.Option("--ff-protein", help="Force field for protein")] ="amber/protein.ff14SB.xml",
-          ff_water: Annotated[str, typer.Option("--ff-water", help="Force field for water.")] = "amber/tip3p_standard.xml",
-          solvent: Annotated[str, typer.Option("--solvent", help="Solvent model (tip3p/gbn2/obc2/gbn1/obc1).")] = "tip3p",
-          box_padding: Annotated[float, typer.Option("--box-padding", help="Box padding in Nanometer.")] = 1.0,
-          salt_conc: Annotated[float, typer.Option("--salt-conc", help="Salt concentration in Molar.")] = 0.15,
-          positive_ion: Annotated[str, typer.Option("--positive-ion", help="Positive ion type.")] = "Na+",
-          negative_ion: Annotated[str, typer.Option("--negative-ion", help="Negative ion type.")] = "Cl-",
-          h_mass_factor: Annotated[float, typer.Option("--h-mass-factor", help="Hydrogen mass factor.")] = 3.0,
-          partial_charge_method: Annotated[str, typer.Option("--partial-charge-method", help="Partial charge method for ligand.")] = "am1bcc",
-          ):
-    """Build MD system with implicit/explicit water box"""
+@app.command
+def build(
+    filename: str,
+    /,
+    *,
+    smiles: str = "",
+    ligand: str = "",
+    ff_ligand: str = "openff-2.2.1.offxml",
+    ff_protein: str = "amber/protein.ff14SB.xml",
+    ff_water: str = "amber/tip3p_standard.xml",
+    solvent: str = "tip3p",
+    box_padding: float = 1.0,
+    salt_conc: float = 0.15,
+    positive_ion: str = "Na+",
+    negative_ion: str = "Cl-",
+    h_mass_factor: float = 3.0,
+    partial_charge_method: str = "am1bcc",
+):
+    """Build MD system with implicit/explicit water box
+
+    Parameters
+    ----------
+    filename: str
+        Input .pdb or .cif filename
+    smiles: str
+        Ligand SMILES
+    ligand: str
+        Ligand residue name
+    ff_ligand: str
+        Force field for ligand
+    ff_protein: str
+        Force field for protein
+    ff_water: str
+        Force field for water.
+    solvent: str
+        Solvent model (tip3p/gbn2/obc2/gbn1/obc1).
+    box_padding: float
+        Box padding in Nanometer.
+    salt_conc: float
+        Salt concentration in Molar.
+    positive_ion: str
+        Positive ion type.
+    negative_ion: str
+        Negative ion type.
+    h_mass_factor: float
+        Hydrogen mass factor.
+    partial_charge_method: str
+        Partial charge method for ligand.
+    """
     if ligand:
         smi_files = list(Path.cwd().glob(f"*{ligand}.smi"))
         assert len(smi_files) == 1, "more than one .smi files found. use --smiles instead"
@@ -224,74 +385,133 @@ def build(filename: Annotated[str, typer.Argument(help="Input .pdb or .cif filen
     # if ligand_sdf_path.exists():
     #     vc.load_ligand_charges(filename= ligand_sdf_path.as_posix())
 
-    vc.assign_ligand_charges(partial_charge_method = partial_charge_method)
+    vc.assign_ligand_charges(partial_charge_method=partial_charge_method)
     vc.save_protein()
-    vc.build(ff_ligand = ff_ligand,
-            ff_protein = ff_protein,
-            ff_water = ff_water,
-            solvent = solvent,
-            box_padding = box_padding,
-            salt_conc = salt_conc,
-            positive_ion = positive_ion,
-            negative_ion = negative_ion,
-            h_mass_factor = h_mass_factor)
+    vc.build(
+        ff_ligand=ff_ligand,
+        ff_protein=ff_protein,
+        ff_water=ff_water,
+        solvent=solvent,
+        box_padding=box_padding,
+        salt_conc=salt_conc,
+        positive_ion=positive_ion,
+        negative_ion=negative_ion,
+        h_mass_factor=h_mass_factor,
+    )
 
 
-@app.command()
-def equi(filename: Annotated[str, typer.Argument(help="Filename (.pdb, .pdb.gz, .cif, .cif.gz) for prefix")],
-         desmond: Annotated[bool, typer.Option("--desmond", help="Use Desmond-like protocol")] = False,
-         temperature: Annotated[float, typer.Option("--temperature", help="Temperature in Kelvin")] = 300.0,
-         pressure: Annotated[float, typer.Option("--pressure", help="Pressure in Bar")] = 1.0,
-         workdir: Annotated[str, typer.Option("--workdir", help="Working directory for the simulation")] = ".",
-         platform: Annotated[str, typer.Option("--platform", help="Platform for the simulation (e.g., CUDA, OpenCL, CPU)")] = "CUDA",
-         devices: Annotated[str, typer.Option("--devices", help="GPU devices for the simulation (e.g., '0', '0,1')")] = "0",
-         ):
-    """Run multi-stage equilibration MD"""
+@app.command
+def equi(
+    filename: str,
+    /,
+    *,
+    desmond: bool = False,
+    temperature: float = 300.0,
+    pressure: float = 1.0,
+    workdir: str = ".",
+    platform: str = "CUDA",
+    devices: str = "0",
+):
+    """Run multi-stage equilibration MD
+
+    Parameters
+    ----------
+    filename: str
+        Filename (.pdb, .pdb.gz, .cif, .cif.gz) for prefix
+    desmond: bool
+        Use Desmond-like protocol
+    temperature: float
+        Temperature in Kelvin
+    pressure: float
+        Pressure in Bar
+    workdir: str
+        Working directory for the simulation
+    platform: str
+        Platform for the simulation (e.g., CUDA, OpenCL, CPU)
+    devices: str
+        GPU devices for the simulation (e.g., '0', '0,1')
+    """
     if desmond:
-        md = Desmond(filename,
-                     temperature= temperature,
-                     pressure= pressure,
-                     workdir= workdir,
-                     platform= platform,
-                     devices= devices
-                     )
+        md = Desmond(
+            filename,
+            temperature=temperature,
+            pressure=pressure,
+            workdir=workdir,
+            platform=platform,
+            devices=devices,
+        )
     else:
-        md = Equilibrium(filename,
-                         temperature= temperature,
-                         pressure= pressure, 
-                         workdir= workdir, 
-                         platform= platform, 
-                         devices= devices)
+        md = Equilibrium(
+            filename,
+            temperature=temperature,
+            pressure=pressure,
+            workdir=workdir,
+            platform=platform,
+            devices=devices,
+        )
     md.run()
 
 
-@app.command()
-def prod(filename: Annotated[str, typer.Argument(help="Filename (.pdb, .pdb.gz, .cif, .cif.gz) for prefix")],
-         temperature: Annotated[float, typer.Option("--temperature", help="Temperature in Kelvin")] = 300.0,
-         pressure: Annotated[float, typer.Option("--pressure", help="Pressure in Bar")] = 1.0,
-         time: Annotated[float, typer.Option("--time", help="Simulation time in ns")] = 10.0,
-         timestep: Annotated[float, typer.Option("--timestep", help="Simulation timestep in fs")] = 2.0,
-         hmr: Annotated[bool, typer.Option("--hmr/--no-hmr", help="Use HMR (Hydrogen Mass Repartitioning).")] = True,
-         state_data_interval: Annotated[float, typer.Option("--state-data-interval", help="State data interval in ps")] = 100.0,
-         trajectory_interval: Annotated[float, typer.Option("--state-data-interval", help="Trajectory interval in ps")] = 100.0,
-         checkpoint_interval: Annotated[float, typer.Option("--state-data-interval", help="Checkpoint interval in ps")] = 100.0,
-         workdir: Annotated[str, typer.Option("--workdir", help="Working directory for the simulation")] = ".",
-         platform: Annotated[str, typer.Option("--platform", help="Platform for the simulation (e.g., CUDA, OpenCL, CPU)")] = "CUDA",
-         devices: Annotated[str, typer.Option("--devices", help="GPU devices for the simulation (e.g., '0', '0,1')")] = "0",
-         ):
-    """Run production MD"""
-    md = Production(filename,
-                    temperature= temperature,
-                    pressure= pressure,
-                    time= time,
-                    timestep= timestep,
-                    hmr= hmr,
-                    state_data_interval= state_data_interval,
-                    trajectory_interval= trajectory_interval,
-                    checkpoint_interval= checkpoint_interval,
-                    workdir= workdir, 
-                    platform= platform, 
-                    devices= devices)
+@app.command
+def prod(
+    filename: str,
+    /,
+    *,
+    temperature: float = 300.0,
+    pressure: float = 1.0,
+    time: float = 10.0,
+    timestep: float = 2.0,
+    hmr: bool = True,
+    state_data_interval: float = 100.0,
+    trajectory_interval: float = 100.0,
+    checkpoint_interval: float = 100.0,
+    workdir: str = ".",
+    platform: str = "CUDA",
+    devices: str = "0",
+):
+    """Run production MD
+
+    Parameters
+    ----------
+    filename: str
+        Filename (.pdb, .pdb.gz, .cif, .cif.gz) for prefix
+    temperature: float
+        Temperature in Kelvin
+    pressure: float
+        Pressure in Bar
+    time: float
+        Simulation time in ns
+    timestep: float
+        Simulation timestep in fs
+    hmr: bool
+        Use HMR (Hydrogen Mass Repartitioning).
+    state_data_interval: float
+        State data interval in ps
+    trajectory_interval: float
+        Trajectory interval in ps
+    checkpoint_interval: float
+        Checkpoint interval in ps
+    workdir: str
+        Working directory for the simulation
+    platform: str
+        Platform for the simulation (e.g., CUDA, OpenCL, CPU)
+    devices: str
+        GPU devices for the simulation (e.g., '0', '0,1')
+    """
+    md = Production(
+        filename,
+        temperature=temperature,
+        pressure=pressure,
+        time=time,
+        timestep=timestep,
+        hmr=hmr,
+        state_data_interval=state_data_interval,
+        trajectory_interval=trajectory_interval,
+        checkpoint_interval=checkpoint_interval,
+        workdir=workdir,
+        platform=platform,
+        devices=devices,
+    )
     md.run()
 
 
