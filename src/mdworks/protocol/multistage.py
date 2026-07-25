@@ -5,6 +5,7 @@ __all__ = ['MultiStage',]
 from pathlib import Path
 from importlib.metadata import version
 from copy import deepcopy
+from typing import Iterable
 
 from openmm import (
     app, 
@@ -225,18 +226,18 @@ class MultiStage(SimFileIO):
         restrained = []
 
         for atom in self.topology.atoms():
-            res = atom.residue.name
+            resname = atom.residue.name
             if atom.element.symbol == 'H' or \
-                res in ValidComplex.std_solvent_residues or \
-                res in ValidComplex.std_divalent_ion_residues :
+                resname in ValidComplex.std_solvent_residues or \
+                resname in ValidComplex.std_divalent_ion_residues:
                 continue
             i = atom.index
             restrained.append(i)
             pos = self.positions[i]
             force.addParticle(i, pos.value_in_unit(unit.nanometer))
             # just for reporting non-protein residues
-            if res not in ValidComplex.std_protein_residues:
-                restrained_non_protein_residues.add(res)
+            if resname not in ValidComplex.std_protein_residues:
+                restrained_non_protein_residues.add(resname)
             
         self.system.addForce(force)
 
@@ -523,11 +524,14 @@ class MultiStage(SimFileIO):
 
 
     def _stage_energy_minimization(self, stage: int, **kwargs) -> None:
-        if self.load_checkpoint(stage):
+        relax = kwargs.get('relax', False) # positional restraints
+        if (not relax) and self.load_checkpoint(stage):
             return
+
         maxiter = kwargs.get('maxiter', 5000) # openmm default 0 (until convergence is achived)
         tolerance = kwargs.get('tolerance', 0.1) # openmm default 10.0 KJ/mol
         interval = kwargs.get('interval', 10)
+
         logger.info(f"({stage}) Energy Minimization")
         # StateDataReporter does not work with simulataion.minimizeEnergy()
         # so a customized MinimizatinReporter is attached here
@@ -539,11 +543,23 @@ class MultiStage(SimFileIO):
         # the MinimizationReporter is no longer active.
         # The Simulation object's main reporters list, which is used during molecular dynamics (MD) steps 
         # (e.g., PDBReporter, StateDataReporter), is separate.
+        
         self.simulation.minimizeEnergy(
             tolerance = tolerance * unit.kilojoule_per_mole / unit.nanometer,
             maxIterations= maxiter,
             reporter= reporter,
             )
+
+        
+        if relax:
+            logger.info(f"({stage}) Energy Minimization without constraints")
+            self._change_posres(0.0)
+            self.simulation.minimizeEnergy(
+                tolerance = tolerance * unit.kilojoule_per_mole / unit.nanometer,
+                maxIterations= maxiter,
+                reporter= reporter,
+                )
+                        
         self.save_checkpoint(stage)
 
 

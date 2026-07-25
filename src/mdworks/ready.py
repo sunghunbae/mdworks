@@ -57,7 +57,29 @@ def extract_ligand(filename: str, ligand_resname: str, output_ligand_pdb: str) -
         PDBFile.writeFile(ligand_topology, ligand_positions, f, keepIds=True)
 
 
+def pdb_to_smiles(filename: str, obabel: str = shutil.which("obabel")) -> None:
+    try:
+        p = Path(filename)
+        prefix = p.name.removesuffix("".join(p.suffixes))
+        assert p.exists(), "file not found"
+        result = subprocess.run([obabel, "-ipdb", filename, "-osmi"], 
+                                capture_output=True, 
+                                text=True, 
+                                check=True
+                                )
+        output = result.stdout.strip()
+        if output:
+            # ex. <SMILES> <Name>
+            smiles, name = output.split(maxsplit=1)
+            with open(f"{prefix}.smi", "w") as f:
+                f.write(f"{smiles}\n")
+            logger.info(f"SMILES: {smiles}")
+        else:
+            raise ValueError(f"Could not guess SMILES from {filename}.")
+    except subprocess.CalledProcessError as e:
+        raise ValueError(f"Error occurred while running obabel on {filename}: {e}")
 
+    
 def _chain_id_order(char):
     if char.isupper():
         return (0, char)  # Highest priority (0)
@@ -67,6 +89,7 @@ def _chain_id_order(char):
         return (2, char)  # Lowest priority (2)
     else:
         return (3, char)  # Fallback for symbols/punctuation
+
 
 def merge_receptor_and_ligand(receptor_pdb: str, ligand_pdb: str, complex_cif: str) -> None:
     """Merges the fixed protein and original ligand structures using OpenMM's Modeller"""
@@ -169,213 +192,7 @@ def do_not_add_missing_atoms_at_terminals(fixer: PDBFixer) -> None:
 
 
 
-def test(filename: str):
-    if filename:
-        p = Path(filename)
-        output_prefix = p.name.removesuffix("".join(p.suffixes))
-        workdir = p.parent
-    
-    test_output = f"{output_prefix}_test.pdb"
-    st = PDBEditor.load(filename).new_chains_for_non_std_residues()
-    
-    # 1. Assuming 'st' is your existing gemmi.Structure object
-    # st = gemmi.read_structure("input.cif") 
 
-    # 2. Convert gemmi.Structure to PDB block string (in-memory)
-    pdb_string = st.structure.make_mmcif_document().as_string() 
-    # Alternatively use st.write_minimal_pdb("") if PDB block is preferred
-
-    # 3. Create a file-like stream to pass to PDBFixer
-    pdb_stream = StringIO(pdb_string)
-
-    # 4. Initialize PDBFixer using the in-memory stream
-    fixer = PDBFixer(pdbxfile=pdb_stream)
-
-    with open("dump.pdb", "w") as f:  
-        PDBFile.writeFile(fixer.topology, fixer.positions, f, keepIds=True)
-
-    # 5. You can now use PDBFixer natively
-    # fixer.findNonstandardResidues()
-    # fixer.replaceNonstandardResidues()
-    # fixer.findMissingResidues()
-    # ... etc.
-
-
-
-
-def complex(
-        filename: str | None = None, 
-        pdb_id: str | None = None,
-        ligand_resname: str | None = None,
-        waters: bool = False,
-        separate_hetgens: bool = True,
-        zinc: bool = True,
-        terminals: bool = False,
-        obabel: str = shutil.which("obabel"),
-        target_pH: float = 7.4,
-        quiet: bool = False) -> None:  
-    """  
-    Fix complex/receptor structural issues and set protonation states.
-    PDBFixer/PDB2PQR workflow excludes non-standard residus including ligands, cofactors, and water molecules.
-    So, if the receptor structure contains a ligand, it should be extracted and processed separately.
-    """  
-    if filename:
-        p = Path(filename)
-        output_prefix = p.name.removesuffix("".join(p.suffixes))
-        workdir = p.parent
-    elif pdb_id:
-        output_prefix = pdb_id
-        workdir = Path.cwd()
-    else:
-        raise ValueError("Either filename or pdb_id must be provided")
-
-    logging.getLogger().handlers.clear()
-    setup_logger(logger, workdir, output_prefix, quiet=quiet)
-
-    fixed_pdb_file = f"{output_prefix}_fixed.pdb"  
-    protonated_receptor_pqr = f"{output_prefix}_H.pqr"  
-    protonated_receptor_pdb = f"{output_prefix}_H.pdb"
-    cmplx_cif_file = f"{output_prefix}_complex.cif"
-
-    st = PDBEditor.load(filename)
-
-    if not waters:
-        st = st.remove_waters()
-
-    if separate_hetgens:
-        st = st.new_chains_for_non_std_residues()
-
-    if zinc:
-        zn_cys = st.find_zn_coord_cys(model_idx=0)
-    else:
-        zn_cys = set()
-
-    # 2. Convert gemmi.Structure to PDB block string (in-memory)
-    cif_string = st.structure.make_mmcif_document().as_string() 
-    # Alternatively use st.write_minimal_pdb("") if PDB block is preferred
-    
-    # 3. Create a file-like stream to pass to PDBFixer
-    pdb_stream = StringIO(cif_string)
-    
-    # 4. Initialize PDBFixer using the in-memory stream
-    fixer = PDBFixer(pdbxfile= pdb_stream)
-
-    # if filename:
-    #     logger.info(f"PDBFixer reading a file: {filename}")
-    #     fixer = PDBFixer(filename= filename)
-    # elif pdb_id:
-    #     logger.info(f"PDBFixer downloading the PDB {pdb_id} structure from RCSB Protein Data Bank")
-    #     fixer = PDBFixer(pdbid= pdb_id)
-
-    if ligand_resname:
-        ligand_pdb = f"{output_prefix}_{ligand_resname}.pdb"
-        ligand_smi = f"{output_prefix}_{ligand_resname}.smi"
-        logger.info(f"[Step 0] Extracting Ligand {ligand_resname} ...")
-        extract_ligand(filename or f"{pdb_id}.pdb", ligand_resname, ligand_pdb)
-        logger.info(f"Extracted ligand {ligand_resname} saved to {ligand_pdb}")
-        try:
-            result = subprocess.run([obabel, "-ipdb", ligand_pdb, "-osmi"], 
-                                    capture_output=True, 
-                                    text=True, 
-                                    check=True
-                                    )
-            output = result.stdout.strip()
-            if output:
-                # ex. <SMILES> <Name>
-                smiles, name = output.split(maxsplit=1)
-                with open(ligand_smi, "w") as f:
-                    f.write(f"{smiles}\n")
-                    logger.info(f"Extracted ligand {ligand_resname} saved to {ligand_smi}")
-            else:
-                raise ValueError(f"Could not guess ligand SMILES.")
-        except subprocess.CalledProcessError as e:
-            raise ValueError(f"Error occurred while running obabel: {e}")
-    
-
-    logger.info(f"[Step 1] Fetching and Fixing via PDBFixer ...")
-
-    # PDBFixer uses geometry template to fill in missing residues and atoms, 
-    # and to replace nonstandard residues with standard ones.
-    fixer.findMissingResidues()
-    fixer.findNonstandardResidues()
-    fixer.replaceNonstandardResidues()
-    fixer.findMissingAtoms()
-      
-    # By default, when you run fixer.findMissingAtoms(), PDBFixer automatically 
-    # calculates proximity between all cysteine sulfur atoms. 
-    # If a cysteine has multiple partners within a standard distance cutoff, 
-    # it logs the warning and picks one, which can lead to incorrect topology generation.
-    
-    # The missingResidues dictionary stores missing residues as: 
-    # (chainIndex, residueIndex): [list of residue names]
-    # example:
-    # {
-    #   (0, 0): ['MET', 'GLU', ..., 'PRO', 'SER']), 
-    #   (0, 108): ['PRO', 'VAL', ... , 'VAL'], 
-    #   (0, 232): ['VAL', ..., 'ARG', 'LEU']
-    # }
-
-    if not terminals:
-        do_not_add_missing_atoms_at_terminals(fixer)
-
-    if zn_cys:
-        logger.info(f"Stripping spurious S-S bonds around a zinc")
-        remove_zn_bonds(fixer)
-        strip_spurious_disulfides(fixer, zn_cys)
-        
-    # Add missing heavy atoms (but do not add hydrogens yet; PDB2PQR will do that)
-    fixer.addMissingAtoms()
-    fixer.removeChains(chainIndices=[-1])
-
-    # Write intermediate fixed heavy-atom structure  
-    with open(fixed_pdb_file, "w") as f:  
-        PDBFile.writeFile(fixer.topology, fixer.positions, f, keepIds=True)  
-        logger.info(f"PDBFixer fixed heavy atoms and saved to {fixed_pdb_file}")
-
-
-    logger.info(f"[Step 2] PDB2PQR predicting pKa at pH {target_pH} and protonating ...")
-    # PDB2PQR automatically removes ligand
-    pdb2pqr_args = [
-        "--ff=AMBER", 
-        f"--with-ph={target_pH}",
-        f"--pdb-output={protonated_receptor_pdb}",
-        fixed_pdb_file,
-        protonated_receptor_pqr]
-    parser = build_main_parser()
-    parsed_pdb2pqr_args = parser.parse_args(pdb2pqr_args)
-    main_driver(parsed_pdb2pqr_args)
-
-    logging.getLogger().handlers.clear()
-    setup_logger(logger, workdir, output_prefix, quiet=quiet)
-    logger.info(f"PDB2PQR saved protonated receptor to {protonated_receptor_pdb}")
-
-    if ligand_resname:
-        logger.info(f"[Step 3] Merging protonated receptor and original ligand {ligand_resname} ...")
-        merge_receptor_and_ligand(protonated_receptor_pdb, ligand_pdb, cmplx_cif_file)
-        logger.info(f"Merged complex saved to {cmplx_cif_file}")
-
-
-def guess_smiles_from_pdb(filename: str, obabel: str = shutil.which("obabel")) -> str:
-    try:
-        p = Path(filename)
-        prefix = p.name.removesuffix("".join(p.suffixes))
-        assert p.exists(), "file not found"
-        result = subprocess.run([obabel, "-ipdb", filename, "-osmi"], 
-                                capture_output=True, 
-                                text=True, 
-                                check=True
-                                )
-        output = result.stdout.strip()
-        if output:
-            # ex. <SMILES> <Name>
-            smiles, name = output.split(maxsplit=1)
-            with open(f"{prefix}.smi", "w") as f:
-                f.write(f"{smiles}\n")
-            return smiles
-        else:
-            raise ValueError(f"Could not guess SMILES from {filename}.")
-    except subprocess.CalledProcessError as e:
-        raise ValueError(f"Error occurred while running obabel on {filename}: {e}")
 
 
 def parse_chain_residue_selection(spec_string: str) -> list[tuple]:
@@ -583,3 +400,121 @@ def split(filename: str, quiet: bool = False):
         
         single_model_st.write_pdb(output_filename)
         logger.info(f"Model {model_idx} saved to {output_filename}")
+
+
+def complex(
+        filename: str | None = None, 
+        ligand_resname: str | None = None,
+        waters: bool = False,
+        separate_hetgens: bool = True,
+        zinc: bool = True,
+        terminals: bool = False,
+        obabel: str = shutil.which("obabel"),
+        target_pH: float = 7.4,
+        quiet: bool = False) -> None:  
+    """  
+    Fix complex/receptor structural issues and set protonation states.
+    PDBFixer/PDB2PQR workflow excludes non-standard residus including ligands, cofactors, and water molecules.
+    So, if the receptor structure contains a ligand, it should be extracted and processed separately.
+    """  
+    p = Path(filename)
+    output_prefix = p.name.removesuffix("".join(p.suffixes))
+    workdir = p.parent
+
+    logging.getLogger().handlers.clear()
+    setup_logger(logger, workdir, output_prefix, quiet=quiet)
+
+    fixed_pdb_file = f"{output_prefix}_fixed.pdb"  
+    protonated_receptor_pqr = f"{output_prefix}_H.pqr"  
+    protonated_receptor_pdb = f"{output_prefix}_H.pdb"
+    cmplx_cif_file = f"{output_prefix}_complex.cif"
+
+    st = PDBEditor.load(filename)
+
+    if not waters:
+        st = st.remove_waters()
+
+    if separate_hetgens:
+        st = st.new_chains_for_non_std_residues()
+
+    if zinc:
+        zn_cys = st.find_zn_coord_cys(model_idx=0)
+    else:
+        zn_cys = set()
+
+    if ligand_resname:
+        logger.info(f"[Step 0] Extracting Ligand {ligand_resname} ...")
+        ligand_pdb = f"{output_prefix}_{ligand_resname}.pdb"
+        ligand_smi = f"{output_prefix}_{ligand_resname}.smi"
+        lig = st.extract(resname= ligand_resname)
+        lig.write(ligand_pdb)
+        # extract_ligand(filename, ligand_resname, ligand_pdb)
+        pdb_to_smiles(ligand_pdb)
+        logger.info(f"Extracted ligand {ligand_resname} saved to {ligand_pdb}")
+        logger.info(f"Extracted ligand {ligand_resname} saved to {ligand_smi}")
+        
+
+    logger.info(f"[Step 1] PDBFixer fixing ...")
+
+    cif_string = st.to_mmcif_str()
+    fixer = PDBFixer(pdbxfile= StringIO(cif_string))
+    
+    # PDBFixer uses geometry template to fill in missing residues and atoms, 
+    # and to replace nonstandard residues with standard ones.
+    fixer.findMissingResidues()
+    fixer.findNonstandardResidues()
+    fixer.replaceNonstandardResidues()
+    fixer.findMissingAtoms()
+      
+    # By default, when you run fixer.findMissingAtoms(), PDBFixer automatically 
+    # calculates proximity between all cysteine sulfur atoms. 
+    # If a cysteine has multiple partners within a standard distance cutoff, 
+    # it logs the warning and picks one, which can lead to incorrect topology generation.
+    
+    # The missingResidues dictionary stores missing residues as: 
+    # (chainIndex, residueIndex): [list of residue names]
+    # example:
+    # {
+    #   (0, 0): ['MET', 'GLU', ..., 'PRO', 'SER']), 
+    #   (0, 108): ['PRO', 'VAL', ... , 'VAL'], 
+    #   (0, 232): ['VAL', ..., 'ARG', 'LEU']
+    # }
+
+    if not terminals:
+        do_not_add_missing_atoms_at_terminals(fixer)
+
+    if zn_cys:
+        logger.info(f"Stripping spurious S-S bonds around a zinc")
+        remove_zn_bonds(fixer)
+        strip_spurious_disulfides(fixer, zn_cys)
+        
+    # Add missing heavy atoms (but do not add hydrogens yet; PDB2PQR will do that)
+    fixer.addMissingAtoms()
+    fixer.removeChains(chainIndices=[-1])
+
+    # Write intermediate fixed heavy-atom structure  
+    with open(fixed_pdb_file, "w") as f:  
+        PDBFile.writeFile(fixer.topology, fixer.positions, f, keepIds=True)  
+        logger.info(f"PDBFixer fixed heavy atoms and saved to {fixed_pdb_file}")
+
+
+    logger.info(f"[Step 2] PDB2PQR predicting pKa at pH {target_pH} and protonating ...")
+    # PDB2PQR automatically removes ligand
+    pdb2pqr_args = [
+        "--ff=AMBER", 
+        f"--with-ph={target_pH}",
+        f"--pdb-output={protonated_receptor_pdb}",
+        fixed_pdb_file,
+        protonated_receptor_pqr]
+    parser = build_main_parser()
+    parsed_pdb2pqr_args = parser.parse_args(pdb2pqr_args)
+    main_driver(parsed_pdb2pqr_args)
+
+    logging.getLogger().handlers.clear()
+    setup_logger(logger, workdir, output_prefix, quiet=quiet)
+    logger.info(f"PDB2PQR saved protonated receptor to {protonated_receptor_pdb}")
+
+    if ligand_resname:
+        logger.info(f"[Step 3] Merging protonated receptor and original ligand {ligand_resname} ...")
+        merge_receptor_and_ligand(protonated_receptor_pdb, ligand_pdb, cmplx_cif_file)
+        logger.info(f"Merged complex saved to {cmplx_cif_file}")

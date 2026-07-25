@@ -100,24 +100,37 @@ class SimFileIO:
             logger.info(f"complex loaded from io.StringIO()")
 
 
-    def save_complex(self, filename: str = "", compress: bool = True) -> None:
+    def save_complex(self, filename: str = "", mmcif: bool = True, compress: bool = True) -> None:
         if not filename:
             try:
                 assert self.solvent_implicit
-                filename = self.workdir / f'{self.prefix}_system_implicit.pdb'
+                tag = 'system_implicit'
             except:
-                filename = self.workdir / f'{self.prefix}_system.pdb'
-        
-        filename = Path(filename)
-
-        if compress:
-            with gzip.open(Path(filename).with_suffix(".pdb.gz"), "wt") as f:
-                app.PDBFile.writeFile(self.topology, self.positions, f, keepIds=True)
-                logger.info(f"complex saved - {filename.with_suffix('.pdb.gz')}")
+                tag = 'system'
+            ext = 'cif' if mmcif else 'pdb'
+            if compress:
+                ext = ext + '.gz'
+            filename = self.workdir / f'{self.prefix}_{tag}.{ext}'
         else:
-            with open(filename, "w") as f:
-                app.PDBFile.writeFile(self.topology, self.positions, f, keepIds=True)
-                logger.info(f"complex saved - {filename}")
+            filename = Path(filename)
+            mmcif = True if '.cif' in filename.name else False
+            compress = True if '.gz' in filename.name else False
+              
+        if mmcif:
+            if compress:
+                with gzip.open(filename, "wt") as f:
+                    app.PDBxFile.writeFile(self.topology, self.positions, f, keepIds=True)
+            else:
+                with open(filename, "w") as f:
+                    app.PDBxFile.writeFile(self.topology, self.positions, f, keepIds=True)
+        else:         
+            if compress:
+                with gzip.open(filename, "wt") as f:
+                    app.PDBFile.writeFile(self.topology, self.positions, f, keepIds=True)
+            else:
+                with open(filename, "w") as f:
+                    app.PDBFile.writeFile(self.topology, self.positions, f, keepIds=True)
+        logger.info(f"complex saved - {filename}")
 
 
     def load_complex(self, filename: str = "") -> bool:

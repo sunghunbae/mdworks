@@ -8,6 +8,7 @@ from pathlib import Path
 import mdworks.mmcif as mmcif
 import mdworks.ready as mdready
 
+from mdworks.editor import PDBEditor
 from mdworks import ValidComplex
 from mdworks.protocol import Relax, Equilibrium, Desmond, Production
 
@@ -67,42 +68,43 @@ def mmcif2seq(filename: Annotated[str, typer.Argument(help="Input .cif filename.
     print(ligand)
 
 
-
 @app.command()
 def mmcif2pdb(filename: Annotated[str, typer.Argument(help="Input .cif filename.")]):
     """(mmCIF) Convert to PDB"""
     print(f'converting {filename} to .pdb')
     mmcif.convert_to_pdb(filename)
 
+
 @app.command()
 def peek(filename: Annotated[str, typer.Argument(help="Input .pdb or .cif filename.")]):
     """(Optional) Peek and show summary of model(s) and chain(s)"""
-    mdready.peek(filename=filename)
+    PDBEditor.load(filename).summary()
+
 
 @app.command()
-def guess(filename: Annotated[str, typer.Argument(help="Input ligand .pdb")],
+def smiles(filename: Annotated[str, typer.Argument(help="Input ligand .pdb")],
           obabel: Annotated[str, typer.Option("--obabel", help="Path to the obabel executable")] = shutil.which("obabel")):
-    """(Optional) Guess SMILES from a ligand .pdb file"""
+    """(Optional) SMILES from a ligand .pdb file"""
     if obabel is None:
         raise NotImplementedError("Error: requires obabel executable.")
-    smiles = mdready.guess_smiles_from_pdb(filename, obabel)
-    print(smiles)
+    mdready.pdb_to_smiles(filename, obabel)
 
 
 @app.command()
 def delete(filename: Annotated[str, typer.Argument(help="Input .pdb or .cif filename.")],
            selection: Annotated[str, typer.Argument(help="Select chain:residues to remove: ex. A:1-30,A:200-230,B:1-10,C,D:1")] = "",
+           invert: Annotated[bool, typer.Option("--invert", help="Invert selection")] = False,
            tag: Annotated[str, typer.Argument(help="Output tag")] = 'del',
            ):
     """(Optional) Delete chain(s) and residue(s)"""
-    mdready.delete(filename=filename, selection=selection, tag=tag)
+    PDBEditor.load(filename).select(expr=selection).delete(invert=invert).write(tag=tag)
 
 
 @app.command()
 def reorder(filename: Annotated[str, typer.Argument(help="Input .pdb or .cif filename.")],
             tag: Annotated[str, typer.Argument(help="Output tag")] = 'ord',):
     """(Optional) Reorder chain(s) by chain id"""
-    mdready.reorder(filename=filename, tag=tag)
+    PDBEditor.load(filename).reorder_chains().write(tag=tag)
 
 
 @app.command()
@@ -111,19 +113,13 @@ def rename(filename: Annotated[str, typer.Argument(help="Input .pdb or .cif file
            tag: Annotated[str, typer.Argument(help="Output tag")] = 'ren',
     ):
     """(Optional) Rename chain id(s)"""
-    mdready.rename(filename=filename, chain_map=chain_map, tag=tag)
+    PDBEditor.load(filename).rename_chains(chain_map= chain_map).write(tag=tag)
 
 
 @app.command()
 def split(filename: Annotated[str, typer.Argument(help="Input .pdb or .cif filename.")]):
     """(Optional) Split and write individual model(s)"""
-    mdready.split(filename=filename)
-
-
-@app.command()
-def test(filename: Annotated[str, typer.Argument(help="Input .pdb or .cif filename.")]):
-    """(Optional) Split and write individual model(s)"""
-    mdready.test(filename=filename)
+    PDBEditor.load(filename).write(split=True)
 
 
 @app.command()
@@ -151,10 +147,11 @@ def ready(filename: Annotated[str, typer.Argument(help="Input .pdb or .cif filen
 def relax(filename: Annotated[str, typer.Argument(help="Input .pdb or .cif filename")],
           smiles: Annotated[str, typer.Option("--smiles", help="Ligand SMILES")] = "",
           ligand: Annotated[str, typer.Option("--ligand", help="Ligand residue name")] = "",
-          partial_charge_method: Annotated[str, typer.Option("--partial-charge-method", help="Partial charge method for ligand.")] = "am1bcc",
+          charge: Annotated[str, typer.Option("--charge", help="Partial charge method for ligand.")] = "am1bcc",
           ff_ligand: Annotated[str, typer.Option("--ff-ligand", help="Force field for ligand")] = "openff-2.2.1.offxml",
           ff_protein: Annotated[str, typer.Option("--ff-protein", help="Force field for protein")] ="amber/protein.ff14SB.xml",
           solvent: Annotated[str, typer.Option("--solvent", help="Solvent model (gbn2/obc2/gbn1/obc1).")] = "gbn2",
+          posres: Annotated[float, typer.Option("--posres", help="Force constant for positional restraints")] = 1000.0,
           maxiter: Annotated[int, typer.Option("--maxiter", help="Max. iteration")] = 5000,
           tolerance: Annotated[float, typer.Option("--tolerance", help="Tolerance")] = 0.1,
           workdir: Annotated[str, typer.Option("--workdir", help="Working directory for the simulation")] = ".",
@@ -176,16 +173,19 @@ def relax(filename: Annotated[str, typer.Argument(help="Input .pdb or .cif filen
     
     if smiles:
         vc.fix_ligand(smiles)
-    
-    vc.assign_ligand_charges(partial_charge_method = partial_charge_method)
-    vc.build(ff_ligand = ff_ligand, ff_protein = ff_protein, solvent = solvent)
-    md = Relax(vc, 
+
+    vc.assign_ligand_charges(partial_charge_method = charge)
+    # if we use 'import' for ligand charges, ligand chain id and residue number are unknown and will be 
+    # set to 'UNK' and '0', respectively.
+
+    vc.build(ff_ligand = ff_ligand, ff_protein = ff_protein, solvent = solvent, posres= posres)
+    em = Relax(vc, 
                maxiter = maxiter, 
                tolerance = tolerance, 
                workdir = workdir, 
                platform = platform, 
                devices = devices)
-    md.run()
+    em.run()
 
 
 @app.command()

@@ -3437,8 +3437,8 @@ packages:
   timestamp: 1733255681319
 - pypi: ./
   name: mdworks
-  version: 0.22.0
-  sha256: 4ef7d7c49e1829ae53027d08cf72951f977cd79503b8d259ba044d16196b70b4
+  version: 0.23.5
+  sha256: 4ef23830b0d5ad95c4bd6f2f24df6406e277bc1aa6b717fbd1c260a61c7159ba
   requires_dist:
   - twine>=6.2.0,<7
   requires_python: '>=3.11'

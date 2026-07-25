@@ -6,7 +6,6 @@ __all__ = ['Relax',]
 from pathlib import Path
 from functools import partial
 
-from openmm import app, unit
 from openmmtools.testsystems import TestSystem
 
 from ..utils import setup_logger
@@ -14,7 +13,6 @@ from ..validcomplex import ValidComplex
 from .multistage import MultiStage
 
 import logging
-import gzip
 
 
 logger = logging.getLogger(__name__)
@@ -46,10 +44,12 @@ class Relax(MultiStage, ValidComplex):
         self.stages = [
             {
                 'tag': 'relaxed',
-                'description': 'Restrained energy minimization', 
+                'description': 'Restrained energy minimization',
                 'maxiter': maxiter, # or 0 for convergence
                 'tolerance': tolerance, # default 10
-                'interval': interval },
+                'interval': interval,
+                'relax': True, 
+            }
         ]
         
         self.stage_partials = [
@@ -76,7 +76,8 @@ class Relax(MultiStage, ValidComplex):
         # final update
         self.positions = self.simulation.context.getState(getPositions=True).getPositions()
 
-        self.save_complex(filename = f"{self.prefix}_relaxed.pdb", compress=True)
+        self.save_complex(filename = f"{self.prefix}_relaxed.cif.gz")
+        self.save_complex(filename = f"{self.prefix}_relaxed.pdb.gz")
 
         # create the empty file to mark completion
         (self.workdir / f"{self.prefix}_RELAXED").touch(exist_ok=True)

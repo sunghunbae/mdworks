@@ -2,10 +2,12 @@ __all__ = ['ValidComplex',]
 
 import io
 import gzip
+import string
 import logging
 import numpy as np
 
 from pathlib import Path
+from typing import Iterable
 from importlib.metadata import version
 
 from rdkit import Chem
@@ -231,7 +233,7 @@ class ValidComplex(SimFileIO):
         # for ensuring the IDs are PDB-compliant if this is set to True
 
 
-    def _add_posres(self, k: float = 1000.0) -> None:
+    def _add_posres(self, k: float = 1000.0, exclude: Iterable | None = None) -> None:
         # create a positional restraint force
         force = CustomExternalForce("k*periodicdistance(x, y, z, x0, y0, z0)^2")
         force.addGlobalParameter("k", k * unit.kilojoules_per_mole / unit.nanometer**2)
@@ -241,19 +243,36 @@ class ValidComplex(SimFileIO):
 
         restrained_non_protein_residues = set()
 
+        # exclude N-/C-terminal residues
+        # terminals = []
+        # for chain in self.topology.chains():
+        #     residues = list(chain.residues())
+        #     if not residues:
+        #         continue
+        #     is_protein = any(atom.name == 'CA' for atom in residues[0].atoms())
+        #     if not is_protein:
+        #         continue
+        #     terminals.append(residues[0]) # N-ter
+        #     terminals.append(residues[-1]) # C-ter
+
         for atom in self.topology.atoms():
-            res = atom.residue.name
+            chainid = atom.residue.chain.id
+            resseq = int(atom.residue.id)
+            resname = atom.residue.name
+            res_id = (chainid, resname, resseq)
             if atom.element.symbol == 'H' or \
-                res in ValidComplex.std_solvent_residues or \
-                res in ValidComplex.std_divalent_ion_residues :
+                resname in ValidComplex.std_solvent_residues or \
+                resname in ValidComplex.std_divalent_ion_residues or \
+                (exclude is not None and res_id in exclude):
+                # atom.residue in terminals:
                 continue
             i = atom.index
             self.restrained.append(i)
             pos = self.positions[i]
             force.addParticle(i, pos.value_in_unit(unit.nanometer))
             # just for reporting non-protein residues
-            if res not in ValidComplex.std_protein_residues:
-                restrained_non_protein_residues.add(res)
+            if resname not in ValidComplex.std_protein_residues:
+                restrained_non_protein_residues.add(resname)
             
         self.system.addForce(force)
         logger.info("positional restraints added to the system:")
@@ -380,30 +399,26 @@ class ValidComplex(SimFileIO):
 
         Args:
             partial_charge_method (str, optional): charge assignment method. Defaults to 'am1bcc'.
-        
-        Returns:
-            None
+                set 'import' to load saved charges in the sdf file.
         """
+        
+        if not filename:
+            filename = self.workdir / f'{self.prefix}_ligand.sdf'
+
+        if partial_charge_method == 'import':
+            logger.info(f"partial charges assigned by importing {filename}")
+            self.off_mol = Molecule.from_file(filename, file_format="sdf")
+            return
+
         logger.info(f"partial charges assigned with {partial_charge_method}")
         self.off_mol = Molecule.from_rdkit(self.rdmolH)
-        self.off_mol.assign_partial_charges(partial_charge_method=partial_charge_method)
+        self.off_mol.assign_partial_charges(partial_charge_method= partial_charge_method)
+
         # save to memory
         self.off_mol.to_file(self.mem_ligand_charges, file_format='sdf')
         assert len(self.mem_ligand_charges.getvalue()) > 0, "partial charges are not assigned"
-        if not filename:
-            filename = self.workdir / f'{self.prefix}_ligand.sdf'
         # save to file
         self.off_mol.to_file(filename, file_format='sdf')
-
-
-    def import_ligand_charges(self, filename: str) -> None:
-        """Import previously computed ligand partial charnges from an SDF file.
-
-        Args:
-            filename (str): SDF filename.
-        """
-        logger.info(f"partial charges assigned with {filename}")
-        self.off_mol = Molecule.from_file(filename, file_format="sdf")
 
         
     def _add_explicit_solvent(self) -> None:
@@ -424,6 +439,25 @@ class ValidComplex(SimFileIO):
         )
 
 
+    @staticmethod
+    def _chain_id_order(char):
+        if char.isupper():
+            return (0, char)  # Highest priority (0)
+        elif char.islower():
+            return (1, char)  # Medium priority (1)
+        elif char.isdigit():
+            return (2, char)  # Lowest priority (2)
+        else:
+            return (3, char)  # Fallback for symbols/punctuation
+
+
+    def _next_chain_id(self) -> str:
+        std_chain_ids = set(string.ascii_uppercase + string.ascii_lowercase + string.digits) # 62
+        chain_ids = list(self.modeller.chains())
+        unused_chain_ids = sorted(list(std_chain_ids - set(chain_ids)), key=ValidComplex._chain_id_order)
+        return unused_chain_ids[0] 
+
+    
     def build(self,
               ff_ligand: str = "openff-2.2.1.offxml", # Sage
               ff_protein: str = "amber/protein.ff14SB.xml",
@@ -433,7 +467,9 @@ class ValidComplex(SimFileIO):
               salt_conc: float = 0.15, # 0.15 M
               positive_ion: str = 'Na+',
               negative_ion: str = 'Cl-',
-              h_mass_factor: float = 3.0
+              h_mass_factor: float = 3.0,
+              posres: float = 1000.0,
+              ligand_resname: str = 'UNL',
               ) -> None:
         """Build Openmm System object.
 
@@ -495,7 +531,6 @@ class ValidComplex(SimFileIO):
         
         # load OpenFF ligand FF
         smirnoff = SMIRNOFFTemplateGenerator(molecules=[self.off_mol], forcefield=ff_ligand)
-        
         self.forcefield.registerTemplateGenerator(smirnoff.generator)
 
         if self.solvent_implicit:
@@ -536,10 +571,21 @@ class ValidComplex(SimFileIO):
 
         self.topology = self.modeller.topology
         self.positions = self.modeller.positions
+
+        # 3. Manually reassign the Chain ID and Residue Number
+        for chain in self.topology.chains():
+            for res in chain.residues():
+                # Find the ligand (OpenMM will name it UNK if it reset it, or keep UNL)
+                if res.name in ['UNK', 'UNL']: 
+                    chain.id = 'L'       # Assign your desired Chain ID string
+                    res.id = '1'         # Assign your desired Residue Number string
+                    res.name = 'UNL'     # Explicitly correct the name if it became UNK
+
         self.save_complex() # topology & positions
         
-        self._add_posres() # posres should be added to system before creating simulation
+        self._add_posres(k= posres) # posres should be added to system before creating simulation
         self.save_system() # system has the positional restraints info.
+
         logger.info(f"system saved - {self.workdir / f'{self.prefix}_system.xml'}")
 
         # hydrogen mass repartitioning (HMR)
