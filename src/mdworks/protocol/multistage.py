@@ -91,26 +91,56 @@ class CustomMinimizationReporter(MinimizationReporter):
         super().__init__()
         self._out = open(file, 'w')
         self._reportInterval = reportInterval
-        self._iterations_since_last_report = 0
-        # Write a header
-        self._out.write("Iteration, Potential Energy (kJ/mol)\n")
+        self._call_count = 0          # true sequential step counter
+        self._restart_count = 0
+        self._last_native_iter = -1
+        self._out.write("Step, LBFGS_Restart, Native_Iteration, Potential Energy (kJ/mol)\n")
 
     def report(self, iteration, x, grad, args):
-        # This method is called after each L-BFGS iteration
-        if self._iterations_since_last_report % self._reportInterval == 0: # 0, 10, 20, ...
-            # The objective function is not exactly potential energy due to constraints
-            # For basic reporting, potential energy might be an approximation or
-            # you can focus on the 'objective' value
-            potential_energy = args['system energy'] # This might not be directly available, check 'objective' in args
-            # A better way is to get the state from the context if needed, but 'args' has stats
-            self._out.write(f"{iteration}, {potential_energy}\n")
-            self._out.flush() # Ensure it writes to the file immediately
-        self._iterations_since_last_report += 1
-        # Return False to continue minimization (True to stop early)
+        # Detect an internal L-BFGS restart: native iteration went backwards
+        if iteration < self._last_native_iter:
+            self._restart_count += 1
+        self._last_native_iter = iteration
+
+        if self._call_count % self._reportInterval == 0:
+            energy = args['system energy']
+            self._out.write(
+                f"{self._call_count}, {self._restart_count}, {iteration}, {energy}\n"
+            )
+            self._out.flush()
+
+        self._call_count += 1
         return False
 
-    def __del__(self):
-        self._out.close()
+    def close(self):
+        if not self._out.closed:
+            self._out.close()
+
+# class CustomMinimizationReporter(MinimizationReporter):
+#     def __init__(self, file: str | Path, reportInterval: int):
+#         super().__init__()
+#         self._out = open(file, 'w')
+#         self._reportInterval = reportInterval
+#         self._iterations_since_last_report = 0
+#         # Write a header
+#         self._out.write("Iteration, Potential Energy (kJ/mol)\n")
+
+#     def report(self, iteration, x, grad, args):
+#         # This method is called after each L-BFGS iteration
+#         if self._iterations_since_last_report % self._reportInterval == 0: # 0, 10, 20, ...
+#             # The objective function is not exactly potential energy due to constraints
+#             # For basic reporting, potential energy might be an approximation or
+#             # you can focus on the 'objective' value
+#             potential_energy = args['system energy'] # This might not be directly available, check 'objective' in args
+#             # A better way is to get the state from the context if needed, but 'args' has stats
+#             self._out.write(f"{iteration}, {potential_energy}\n")
+#             self._out.flush() # Ensure it writes to the file immediately
+#         self._iterations_since_last_report += 1
+#         # Return False to continue minimization (True to stop early)
+#         return False
+
+#     def __del__(self):
+#         self._out.close()
 
 
 
@@ -170,12 +200,11 @@ class MultiStage(SimFileIO):
 
         logger.info(f"mdworks {version('mdworks')}")
         logger.info(f"openff-toolkit {version('openff-toolkit')}")
-        logger.info(f"OpenMM platform= {platform} devices= {devices}")
-        logger.info(f"workdir= {self.workdir}")
-        logger.info(f"prefix= {self.prefix}")
-
+        
         self._set_platform(platform, devices)
 
+        logger.info(f"workdir= {self.workdir}")
+        logger.info(f"prefix= {self.prefix}")
 
         if isinstance(complex, ValidComplex):
             self.topology = complex.topology
@@ -211,8 +240,7 @@ class MultiStage(SimFileIO):
             filename = self.workdir / f"{self.prefix}_system_hmr.xml"
             with open(filename, "w") as f:
                 f.write(XmlSerializer.serialize(self.system_hmr))
-        
-        
+
 
     def _add_posres(self, k: float = 1000.0) -> None:
         # create a positional restraint force
@@ -259,9 +287,8 @@ class MultiStage(SimFileIO):
                 "DeterministicForces" : "true",
                 }
         else:
-            self.platform = Platform.getPlatform('CPU') 
-
-        logger.info(f"OpenMM {version('openmm')} with {self.platform.getName()}")
+            self.platform = Platform.getPlatform('CPU')
+        logger.info(f"OpenMM {version('openmm')} platform= {self.platform.getName()} devices= {devices}")
 
 
     def load_sim_env(self) -> bool:
@@ -389,7 +416,6 @@ class MultiStage(SimFileIO):
         # No further update is needed.
         logger.info(f"posres k= {self._get_posres_k():6.1f} KJ/mol/nm^2")
         
-
 
     def _get_posres_k(self) -> float:
         return self.simulation.context.getParameter("k")
@@ -525,6 +551,9 @@ class MultiStage(SimFileIO):
 
     def _stage_energy_minimization(self, stage: int, **kwargs) -> None:
         relax = kwargs.get('relax', False) # positional restraints
+        # If `relax` is True, 
+        #   - ignore loading and saving checkpoint.
+        #   - two energy minizations are performed: with posres and without posres.
         if (not relax) and self.load_checkpoint(stage):
             return
 
@@ -532,7 +561,8 @@ class MultiStage(SimFileIO):
         tolerance = kwargs.get('tolerance', 0.1) # openmm default 10.0 KJ/mol
         interval = kwargs.get('interval', 10)
 
-        logger.info(f"({stage}) Energy Minimization")
+        k = self._get_posres_k()
+        logger.info(f"({stage}) Energy Minimization (posres= {k} kJ/mol/nm**2)")
         # StateDataReporter does not work with simulataion.minimizeEnergy()
         # so a customized MinimizatinReporter is attached here
         # ... set up system, forcefield, simulation ...
@@ -550,17 +580,17 @@ class MultiStage(SimFileIO):
             reporter= reporter,
             )
 
-        
         if relax:
-            logger.info(f"({stage}) Energy Minimization without constraints")
+            logger.info(f"({stage}) Energy Minimization (no positional constraints)")
             self._change_posres(0.0)
             self.simulation.minimizeEnergy(
                 tolerance = tolerance * unit.kilojoule_per_mole / unit.nanometer,
                 maxIterations= maxiter,
                 reporter= reporter,
                 )
-                        
-        self.save_checkpoint(stage)
+
+        if not relax:
+            self.save_checkpoint(stage)
 
 
     def _stage_NVT_cold(self, stage: int, **kwargs) -> None:

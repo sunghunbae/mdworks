@@ -1,0 +1,13 @@
+2026-07-26 08:59:INFO:mdworks.editor:assign a new chain id B to A MG  181
+2026-07-26 08:59:INFO:mdworks.editor:assign a new chain id C to A GTP 180
+2026-07-26 08:59:INFO:mdworks.ready:[Step 0] Extracting Ligand GTP ...
+2026-07-26 08:59:INFO:mdworks.editor:selected residues: {'A': 0, 'B': 0, 'C': 1}
+2026-07-26 08:59:INFO:mdworks.ready:Extracted ligand GTP saved to 2RAP_GTP.pdb
+2026-07-26 08:59:INFO:mdworks.editor:SMILES: P(=O)(O)(O)O[P@@](=O)(O)O[P@](=O)(O)OC[C@H]1O[C@H]([C@@H]([C@@H]1O)O)n1cnc2c(=O)nc(N)[nH]c12
+2026-07-26 08:59:INFO:mdworks.ready:Extracted ligand GTP saved to 2RAP_GTP.smi
+2026-07-26 08:59:INFO:mdworks.ready:[Step 1] PDBFixer fixing ...
+2026-07-26 08:59:INFO:mdworks.ready:PDBFixer fixed heavy atoms and saved to 2RAP_fixed.pdb
+2026-07-26 08:59:INFO:mdworks.ready:[Step 2] PDB2PQR predicting pKa at pH 7.4 and protonating ...
+2026-07-26 08:59:INFO:mdworks.ready:PDB2PQR saved protonated receptor to 2RAP_H.pdb
+2026-07-26 08:59:INFO:mdworks.ready:[Step 3] Merging protonated receptor and original ligand GTP ...
+2026-07-26 08:59:INFO:mdworks.ready:Merged complex saved to 2RAP_complex.cif

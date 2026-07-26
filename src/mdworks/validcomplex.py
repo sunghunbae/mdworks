@@ -17,7 +17,7 @@ try:
     from pdbfixer import PDBFixer
     from openff.toolkit.topology.molecule import Molecule
     from openmmforcefields.generators import SMIRNOFFTemplateGenerator
-    from openmm import app, unit, CustomExternalForce
+    from openmm import app, unit, CustomExternalForce, NonbondedForce
 except ImportError:
     raise ImportError("install openmm, openmmforcefields, pdbfixer, and openff-toolkit from conda-forge.\n")
 
@@ -145,20 +145,8 @@ class ValidComplex(SimFileIO):
         logger.info(f"scipy {version('scipy')}")
         logger.info(f"workdir= {self.workdir}")
         logger.info(f"prefix= {self.prefix}")
-
-        # self._add_missing_atoms()
-        # this task is done by ready.complex()
         
         self._sort_protein_and_ligand_residues()
-
-
-    def _add_missing_atoms(self) -> None:
-        """Add missing atoms such as OXT."""
-        # fixer.findMissingResidues()
-        self.fixer.missingResidues = {}  # bypass logic
-        self.fixer.findMissingAtoms()
-        self.fixer.addMissingAtoms()
-        self.fixer.addMissingHydrogens(pH=self.pH)
 
 
     def _sort_protein_and_ligand_residues(self) -> None:
@@ -186,12 +174,13 @@ class ValidComplex(SimFileIO):
                 logger.info(f"  deleting: {res}")
                 residues_to_delete.append(res)
         self.protein_modeller.delete(residues_to_delete)
+
         # non-standard residues        
         for res in self.protein_modeller.topology.residues():
             if res.name not in ValidComplex.std_protein_residues:
                 logger.info(f"  including non-protein: {res}")
         logger.info(f"  number of residues: {self.protein_modeller.topology.getNumResidues()}")
-
+        logger.info(f"checking protein_modeller clashes..")
         self._check_clashes(
             self.protein_modeller.topology, 
             self.protein_modeller.positions)
@@ -209,17 +198,6 @@ class ValidComplex(SimFileIO):
                 logger.info(f"  keeping: {res}")
         self.ligand_modeller.delete(residues_to_delete)
         logger.info(f"  number of residues: {self.ligand_modeller.topology.getNumResidues()}")
-
-        self._check_clashes(
-            self.ligand_modeller.topology, 
-            self.ligand_modeller.positions)
-
-        app.PDBFile.writeFile(
-            self.protein_modeller.topology,
-            self.protein_modeller.positions,
-            self.mem_protein,
-            keepIds=True
-        )
 
         app.PDBFile.writeFile(
             self.ligand_modeller.topology,
@@ -469,7 +447,6 @@ class ValidComplex(SimFileIO):
               negative_ion: str = 'Cl-',
               h_mass_factor: float = 3.0,
               posres: float = 1000.0,
-              ligand_resname: str = 'UNL',
               ) -> None:
         """Build Openmm System object.
 
@@ -505,17 +482,29 @@ class ValidComplex(SimFileIO):
             self.protein_modeller.positions,
             )
 
-        # Add ligand
-        self.modeller.add(
-            self.off_mol.to_topology().to_openmm(), 
-            self.off_mol.conformers[0].to_openmm(),
-            )
-        
+        if self.off_mol and self.ligand_modeller:
+            logger.info(f"adding ligand to system..")
+            # Rebuild the complex so ligand connectivity is preserved — 
+            # e.g. load the ligand from an SDF/MOL2 with RDKit 
+            # or OpenFF (Molecule.from_file(...), which carries bond info natively), 
+            # convert to an OpenMM topology (molecule.to_topology().to_openmm()), 
+            # and merge it with the protein topology via Modeller.add(ligand_topology, ligand_positions)
+            ligand_topology = self.off_mol.to_topology().to_openmm()
+            ligand_positions = self.off_mol.conformers[0].to_openmm()
+            # preserve chain id and residue name/id before adding to the modeller
+            for chain, origin in zip(ligand_topology.chains(), self.ligand_modeller.topology.chains()):
+                chain.id = origin.id
+            for residue, origin in zip(ligand_topology.residues(), self.ligand_modeller.topology.residues()):
+                residue.name = origin.name # 3-4 letter code, whatever convention you use
+                residue.id = origin.id     # residue number/seqid, as a string
+            self.modeller.add(ligand_topology, ligand_positions)
+
         self._check_clashes(
             self.modeller.topology,
             self.modeller.positions)
         
         self.solvent = solvent
+
         if solvent in ['gbn2', 'obc2', 'gbn1', 'obc1']:
             self.solvent_implicit = True
         else:
@@ -648,7 +637,20 @@ class ValidComplex(SimFileIO):
         return list(pairs_13), list(pairs_14)
 
 
-    def _check_clashes(self, topology, positions, threshold: float = 1.5) -> float:
+    def _get_excluded_pairs(self) -> set[tuple[int, int]]:
+        """
+        When the ligand was parameterized (GAFF/OpenFF/etc.), the force field computed 
+        the correct 1-2/1-3/1-4 exclusion list as NonbondedForce exceptions 
+        (typically chargeProd = 0, epsilon = 0, or scaled for 1-4). 
+        """
+        nonbonded = next(f for f in self.system.getForces() if isinstance(f, NonbondedForce))
+        excluded = set()
+        for idx in range(nonbonded.getNumExceptions()):
+            i, j, chargeProd, sigma, epsilon = nonbonded.getExceptionParameters(idx)
+            excluded.add(tuple(sorted((i, j))))
+        return excluded
+
+    def _check_clashes(self, topology, positions, threshold: float = 1.5) -> None:
         """Check for steric clashes in the system.
         Notes:
             Van der Waals radii (in Angstroms): H: 1.20, C: 1.70, N: 1.55, O: 1.52
@@ -688,3 +690,10 @@ class ValidComplex(SimFileIO):
             a2_id = f'{a2.residue.name:<4} {a2.residue.id:<4} {a2.name:<4}'
             d = distances_matrix[i, j] # Get actual distance for reporting
             logger.info(f"  {a1_id} & {a2_id}: {d:.3f} A")
+
+
+    def _check_ligand_topology(self, topology) -> None:
+        indices = {a.index for a in topology.atoms()}
+        bonds = [b for b in topology.bonds() if b.atom1.index in indices and b.atom2.index in indices]
+        logger.info(f"checking ligand topology: atoms={len(indices)} bonds={len(bonds)}")  
+        # bonds should be roughly atoms-1 to atoms+ring_count
