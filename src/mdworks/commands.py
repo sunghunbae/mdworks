@@ -124,14 +124,7 @@ def pdb2smiles(filename: str, /, *, obabel: str = shutil.which("obabel")):
 
 
 @app.command
-def delete(
-    filename: str,
-    selection: str = "",
-    tag: str = 'del',
-    /,
-    *,
-    invert: bool = False,
-):
+def delete(filename: str, selection: str = "", /, *, tag: str = 'del', invert: bool = False):
     """Delete chain(s) and residue(s)
 
     Parameters
@@ -145,7 +138,7 @@ def delete(
     invert: bool
         Invert selection
     """
-    Editor.load(filename).select(expr=selection).delete(invert=invert).write(tag=tag)
+    Editor.load(filename).select(expr=selection).delete(invert=invert).write(tag=tag,compress=True)
 
 
 @app.command
@@ -286,7 +279,10 @@ def relax(
         GPU devices for the simulation (e.g., '0', '0,1')
     """
     if ligand:
-        smi_files = list(Path.cwd().glob(f"*{ligand}.smi"))
+        p = Path(filename)
+        prefix = p.name.removesuffix("".join(p.suffixes))
+        upstream_prefix = prefix.replace('_complex', '')
+        smi_files = list(Path.cwd().glob(f"{upstream_prefix}_{ligand}.smi"))
         assert len(smi_files) == 1, "more than one .smi files found. use --smiles instead"
         smi_file = smi_files[0]
         smiles = Path(smi_file).read_text().splitlines()[0].strip()
@@ -366,7 +362,10 @@ def build(
         Partial charge method for ligand.
     """
     if ligand:
-        smi_files = list(Path.cwd().glob(f"*{ligand}.smi"))
+        p = Path(filename)
+        prefix = p.name.removesuffix("".join(p.suffixes))
+        upstream_prefix = prefix.replace('_complex', '')
+        smi_files = list(Path.cwd().glob(f"{upstream_prefix}_{ligand}.smi"))
         assert len(smi_files) == 1, "more than one .smi files found. use --smiles instead"
         smi_file = smi_files[0]
         smiles = Path(smi_files[0]).read_text().splitlines()[0].strip()

@@ -7,6 +7,7 @@ from typing import Iterable, Sequence
 from collections import defaultdict
 
 import re
+import gzip
 import shutil
 import subprocess
 import string
@@ -74,25 +75,46 @@ class Editor:
               minimal: bool = False,
               format: str = 'cif',
               tag: str = '', 
-              split: bool = False) -> "Editor":
+              split: bool = False,
+              compress: bool = True) -> "Editor":
         """Write structure to a file"""
         if path is None:
-            output_path = Path(f'{self.prefix}_{tag}.{format}')
+            if compress:
+                outfile_path = Path(f'{self.prefix}_{tag}.{format}')
+            else:
+                outfile_path = Path(f'{self.prefix}_{tag}.{format}.gz')
+
         else:
-            output_path = Path(path)
-            format = 'pdb' if 'pdb' in output_path.name else 'cif'
+            outfile_path = Path(path)
+            format = 'pdb' if 'pdb' in outfile_path.name else 'cif'
+            compress = True if outfile_path.name.endswith('.gz') else False
+
+        outfile =  str(outfile_path)
 
         if not split:
             if format in ('cif', 'mmcif'):
                 doc = self.structure.make_mmcif_document() if not minimal \
                     else self.structure.make_mmcif_headers()
-                doc.write_file(str(output_path))
+                if compress:
+                    with gzip.open(outfile, "wt", encoding="utf-8") as f:
+                        f.write(doc.as_string())
+                else:
+                    doc.write_file(outfile)
             else:
-                self.structure.write_pdb(str(output_path))
+                if compress:
+                    with gzip.open(outfile, "wt", encoding="utf-8") as f:
+                        f.write(self.structure.write_pdb_string())
+                else:
+                    self.structure.write_pdb(outfile)
+            logger.info(f"write to {outfile}")
         else:
+            # Note: tag is ignored
             for model_idx, model in enumerate(self.structure, start=1):
-                output_path = Path(f"{self.prefix}_{model_idx}.{format}") # tag is ignored
+                outfile_path = Path(f"{self.prefix}_{model_idx}.{format}")
+                outfile = str(outfile_path)
+
                 single_model_st = gemmi.Structure()   
+
                 # Preserve original metadata if desired (e.g., cell, spacegroup)
                 try:
                     single_model_st.cell = self.cell
@@ -106,12 +128,23 @@ class Editor:
                 # Add a copy of the current model to the new structure
                 # (Using .clone() prevents altering or corrupting the source object)
                 single_model_st.add_model(model.clone())
+
                 if format in  ("cif", "mmcif"):
                     doc = single_model_st.structure.make_mmcif_document() if not minimal \
                         else single_model_st.structure.make_mmcif_headers()
-                    doc.write_file(str(output_path))
+                    if compress:
+                        with gzip.open(outfile, "wt", encoding="utf-8") as f:
+                            f.write(doc.as_string())
+                    else:
+                        doc.write_file(outfile)
                 else:
-                    single_model_st.structure.write_pdb(str(output_path))
+                    if compress:
+                        with gzip.open(outfile, "wt", encoding="utf-8") as f:
+                            f.write(doc.as_string())
+                    else:
+                        single_model_st.structure.write_pdb(outfile)
+
+                logger.info(f"write to {outfile}")
 
         return self
         
@@ -129,8 +162,17 @@ class Editor:
     def delete(self, invert: bool = False) -> "Editor":
         if invert:
             self.sel.remove_not_selected(self.model)
+            logger.info("remove NOT selected")
         else:
             self.sel.remove_selected(self.model)
+            logger.info("remove selected")
+
+        # clear old metadata associations
+        self.structure.entities.clear()
+
+        # force gemmi to recalculate entities from current atoms
+        self.structure.setup_entities()
+
         return self
 
     
@@ -228,7 +270,7 @@ class Editor:
             for residue in self.sel.residues(chain):
                 c[chain.name] += 1
 
-        return c
+        return {k:v for k, v in c.items() if v > 0}
 
 
     def _merge_sel(self, other_sel: gemmi.Selection, flag: chr = 'x') -> gemmi.Selection:
@@ -285,7 +327,9 @@ class Editor:
                     residue.flag = flag
 
         self.sel = gemmi.Selection().set_residue_flags(flag)
-        logger.info(f"selected residues: {self._count_sel()}")
+        atom_count = self.model.count_atom_sites(self.sel)
+
+        logger.info(f"select residues: {self._count_sel()} ({atom_count} atoms)")
         
         return self
 
