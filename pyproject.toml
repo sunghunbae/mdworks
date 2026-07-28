@@ -1,11 +1,16 @@
 [project]
 name = "mdworks"
-version = "0.25.9"
+version = "0.25.11"
 description = "Streamlines preparation and equilibration of molecular complex for MD simulations"
 readme = "README.md"
 authors = [{name = "Sung-Hun Bae", email = "sunghun.bae@gmail.com"}]
 requires-python = ">= 3.11"
-dependencies = [] 
+dependencies = [
+    "gemmi>=0.7.5,<0.8",
+    "cyclopts>=4.22.0,<5",
+    "biopython>=1.86,<2",
+    "pdb2pqr>=3.6.1,<4",
+] 
 
 [project.scripts]
 mdworks = "mdworks.commands:app"
@@ -39,15 +44,14 @@ pdb2pqr = ">=3.6.1,<4"
 gemmi = ">=0.7.5,<0.8"
 cyclopts = ">=4.22.0,<5"
 ipykernel = ">=7.1.0,<8"
+twine = ">=6.2.0,<7"
 
 [tool.pixi.pypi-dependencies]
-typer = ">=0.21.1, <0.22"
 mdworks = { path = ".", editable = true }
 
 [tool.pixi.package.host-dependencies]
 hatchling = ">=1.28.0,<2"
 uv = ">=0.10.0,<0.11"
-twine = ">=6.2.0,<7"
 
 [tool.pixi.tasks]
 build-pypi = "uv build; pixi install"
