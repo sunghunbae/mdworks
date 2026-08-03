@@ -1,0 +1,246 @@
+import shutil
+import argparse
+
+from pathlib import Path
+
+import mdworks.mmcif as mmcif
+
+from mdworks import Editor, ReadyPipeline, ValidComplex 
+from mdworks.protocol import Relax, Equilibrium, Desmond, Production
+
+from rdkit import Chem
+from Bio import Align
+
+
+def mmcif2seq(filename: str):
+    """Get missing residue(s) and sequence from mmCIF
+
+    - Full sequence
+    - Coordinate sequence with missing residues (`-`)
+
+    Parameters
+    ----------
+    filename: str
+        Input .cif filename.
+    """
+    coor_seq = mmcif.get_residue_poly_sequences(filename)
+    auth_seq = mmcif.get_entity_poly_sequences(filename)
+
+    aligner = Align.PairwiseAligner()
+    aligner.mode = 'local'
+    aligner.match_score = 1.0
+    aligner.open_gap_score = -1
+    aligner.extend_gap_score = 0
+
+    # Perform global alignment (simple, without scoring)
+    alignments = aligner.align(auth_seq['1'], coor_seq['A'])
+    alignment = alignments[0]
+
+    print(alignment[0])
+    print(alignment[1])
+    print(f'aligner algorithm= {aligner.algorithm}')
+    print(f'  length={alignment.length}')
+    print(f'  aligned={alignment.aligned}')
+
+    ligand = mmcif.get_nonpoly_chains_and_residues(filename)
+    print(ligand)
+
+
+def _get_version() -> str:
+    from mdworks import __version__
+    return __version__
+
+
+# Cyclopts ships a built-in --version handler, so there's no need for a
+# manual version_callback / @app.callback() the way Typer required.
+# app = cyclopts.App(name="mdworks", help="mdworks", version=_get_version)
+
+# def command(posistional_only, /, standard(both), *, key_words_only):
+
+
+
+def main():
+    # Main (Parent) Parser for Global Options
+    main_parser = argparse.ArgumentParser(description="mdworks")
+    main_parser.add_argument('filename', type=str, help='Input .cif or .pdb file')
+    main_parser.add_argument('--version', help='Version')
+    main_parser.add_argument('--obabel', type=str, default= shutil.which("obabel"), help="Path to obabel executable")
+    main_parser.add_argument('--tag', type=str, help='Output tag')
+    main_parser.add_argument('--workdir', type=str, default='.', help="Workdir")
+    main_parser.add_argument('--platform', type=str, default='CUDA', choices=['CUDA', 'OpenCL', 'CPU'], help="Platform")
+    main_parser.add_argument('--devices', type=str, default='0', help="GPU devices")
+
+    subparsers = main_parser.add_subparsers(dest='command', required=True, help='Action to perform')
+    
+    parser_delete = subparsers.add_parser('delete', help='Delete chain(s)/residue(s)')
+    parser_delete.add_argument('selection', type=str, help='Selection chain(s)/residues(s)')
+    parser_delete.add_argument('--invert', action='store_true', help='Invert selection')
+
+    parser_rename = subparsers.add_parser('rename', help='Rename chain(s)/residue(s)')
+    parser_rename.add_argument('--chain-map', type=str, help='Chain map. Ex. A:B,B:C,D:C')
+
+    # Subparser for 'ready'
+    parser_ready = subparsers.add_parser('ready', help='Run preparation pipeline')
+    parser_ready.add_argument('--ligand', type=str, help='Ligand resname')
+    parser_ready.add_argument('--keep-waters', action='store_true', help='Keep waters')
+    parser_ready.add_argument('--separate-hetgens', action='store_true', help='Separete non-standard residues in new chains')
+    parser_ready.add_argument('--zinc', action='store_true', help='Handle Zinc related issue')
+    parser_ready.add_argument('--keep-terminals', action='store_true', help='Keep input N/C terminals and skip adding missising residues at N/C-terminals')
+    parser_ready.add_argument('--ph', type=float, help='target pH for PDB2PQR protonation')
+
+    # Subparser for 'relax'
+    parser_relax = subparsers.add_parser('relax', help='Stop and remove containers')
+    parser_relax.add_argument('--charge', type=str, default='nagl', choices=['nagl', 'am1bcc'], help="Partial charge method")
+    parser_relax.add_argument('--ff-ligand', type=str, default='openff-2.2.1.offxml', help="Forcefield for ligand")
+    parser_relax.add_argument('--ff-protein', type=str, default='amber/protein.ff14SB.xml', help="Forcefield for protein")
+    parser_relax.add_argument('--solvent', type=str, default='gbn2', choices=['gbn2', 'obc2', 'gbn1', 'obc1'], help="Implicit solvent model")
+    parser_relax.add_argument('--posres', type=float, default=1000.0, help="Force constant for positional restraints (kJ/mol/A**2)")
+    parser_relax.add_argument('--maxiter', type=int, default=5000, help="Max iteration of energy minimization")
+    parser_relax.add_argument('--tolerance', type=float, default=0.1, help="Max tolerance of convergence")
+
+    parser_relax = subparsers.add_parser('build', help='Stop and remove containers')
+    parser_relax.add_argument('--charge', type=str, default='nagl', choices=['nagl', 'am1bcc'], help="Partial charge method")
+    parser_relax.add_argument('--ff-ligand', type=str, default='openff-2.2.1.offxml', help="Forcefield for ligand")
+    parser_relax.add_argument('--ff-protein', type=str, default='amber/protein.ff14SB.xml', help="Forcefield for protein")
+    parser_relax.add_argument('--solvent', type=str, default='tip3p', choices=['tip3p', 'gbn2', 'obc2', 'gbn1', 'obc1'], help="Solvent model")
+    parser_relax.add_argument('--box-padding', type=float, default=1.0, help="Box padding (nm)")
+    parser_relax.add_argument('--salt-concm', type=float, default=0.15, help="Salt concentration (M)")
+    parser_relax.add_argument('--positive-ion', type=str, default='Na+', help="Positive ion")
+    parser_relax.add_argument('--negative-ion', type=str, default='Cl+', help="Negative ion")
+    parser_relax.add_argument('--h-mass-factor', type=float, default=3.0, help="H mass factor for HMR")
+    
+
+    parser_equi = subparsers.add_parser('equi', help='Stop and remove containers')
+    parser_equi.add_argument('--desmond', action='store_true', help="Use Desmond protocol")
+    parser_equi.add_argument('--temperature', type=float, default=300.0, help="Temperature (kelvin)")
+    parser_equi.add_argument('--pressure', type=float, default=1.0, help="Pressure (bar)")
+
+    parser_prod = subparsers.add_parser('prod', help='Stop and remove containers')
+    parser_prod.add_argument('--temperature', type=float, default=300.0, help="Temperature (kelvin)")
+    parser_prod.add_argument('--pressure', type=float, default=1.0, help="Pressure (bar)")
+    parser_prod.add_argument('--time', type=float, default=10.0, help="Time (ns)")
+    parser_prod.add_argument('--timestep', type=float, default=2.0, help="Timestep (fs)")
+    parser_prod.add_argument('--hmr', default=True, action='store_true', help="HMR")
+    parser_prod.add_argument('--state-data-interval', type=float, default=100.0, help="State data interval (ps)")
+    parser_prod.add_argument('--trajectory-interval', type=float, default=100.0, help="Trajectory interval (ps)")
+    parser_prod.add_argument('--checkpoint-interval', type=float, default=100.0, help="Checkpoint interval (ps)")
+    
+    args = main_parser.parse_args()
+
+    if args.command == 'mmcifinfo':
+        mmcif.info(args.filename)
+
+    if args.command == 'mmcif2pdb':
+        print(f'converting {args.filename} to .pdb')
+        Editor.load(args.filename).write(format='pdb')
+
+    if args.command == 'pdb2mmcif':
+        print(f'converting {args.filename} to .cif')
+        Editor.load(args.filename).write(format='cif')
+
+    if args.command == 'pdb2smiles':
+        Editor.pdb_to_smiles(args.filename, args.obabel)
+
+    if args.command == 'delete':
+        Editor.load(args.filename).select(expr= args.selection).delete(invert= args.invert).write(tag= args.tag, compress= True)
+
+    if args.command == 'reorder':
+        Editor.load(args.filename).reorder_chains().write(tag= args.tag)
+
+    if args.command == 'rename':
+        Editor.load(args.filename).rename_chains(chain_map= args.chain_map).write(tag= args.tag)
+
+    if args.command == 'split':
+        Editor.load(args.filename).write(split= True)
+
+    if args.command == 'peek':
+        Editor.load(args.filename).summary()
+
+    if args.command == 'ready':
+        ReadyPipeline(
+            in_file= args.filename,
+            ligand_resname= args.ligand,
+            keep_waters= args.keep_waters,
+            separate_hetgens= args.separate_hetgens,
+            zinc= args.zinc,
+            keep_terminals= args.keep_terminals,
+            obabel= args.obabel,
+            target_ph= args.ph,
+            ).run()
+
+    elif args.command == 'relax':
+        vc = ValidComplex(args.filename)
+        vc.assign_ligand_charges(partial_charge_method=args.charge)
+        # if we use 'import' for ligand charges, ligand chain id and residue number are unknown and will be
+        # set to 'UNK' and '0', respectively.
+        vc.build(
+            ff_ligand= args.ff_ligand,
+            ff_protein= args.ff_protein, 
+            solvent= args.solvent, 
+            posres= args.posres,
+            )
+        Relax(
+            vc,
+            maxiter= args.maxiter,
+            tolerance= args.tolerance,
+            workdir= args.workdir,
+            platform= args.platform,
+            devices= args.devices,
+            ).run()
+
+    elif args.command == 'build':
+        vc = ValidComplex(args.filename)
+        vc.assign_ligand_charges(partial_charge_method= args.charge)
+        vc.build(
+            ff_ligand= args.ff_ligand,
+            ff_protein= args.ff_protein, 
+            solvent= args.solvent, 
+            posres= args.posres,
+            box_padding= args.box_padding,
+            salt_conc= args.salt_conc,
+            positive_ion= args.positive_ion,
+            negative_ion= args.negative_ion,
+            h_mass_factor= args.h_mass_factor,
+            )
+        
+    elif args.command == 'equi':
+        if args.desmond:
+            md = Desmond(
+                args.filename,
+                temperature= args.temperature,
+                pressure= args.pressure,
+                workdir= args.workdir,
+                platform= args.platform,
+                devices= args.devices,
+            )
+        else:
+            md = Equilibrium(
+                args.filename,
+                temperature= args.temperature,
+                pressure= args.pressure,
+                workdir= args.workdir,
+                platform= args.platform,
+                devices= args.devices,
+            )
+        md.run()
+
+    elif args.command == 'prod':
+        md = Production(
+            args.filename,
+            temperature= args.temperature,
+            pressure= args.pressure,
+            time= args.time,
+            timestep= args.timestep,
+            hmr= arg.hmr,
+            state_data_interval= args.state_data_interval,
+            trajectory_interval= args.trajectory_interval,
+            checkpoint_interval= args.checkpoint_interval,
+            workdir= args.workdir,
+            platform= args.platform,
+            devices= args.devices,
+        )
+        md.run()
+
+
+if __name__ == '__main__':
+    main()

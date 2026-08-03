@@ -53,7 +53,10 @@ class ValidComplex(SimFileIO):
         "MG" , "ZN", "CA", "MN", "FE", "CU", "CO", "CD", "NI", "SR", "BA", 
         }
     
-    def __init__(self, in_file: str | Path, workdir: Path | str | None = None, quiet: bool = False):
+    def __init__(self,
+                 in_file: str | Path, 
+                 workdir: Path | str | None = None, 
+                 quiet: bool = False):
         """Initialize ValidComplex class object.
 
         Args:
@@ -64,7 +67,7 @@ class ValidComplex(SimFileIO):
         assert isinstance(in_file, str) or isinstance(in_file, Path)
         in_path = Path(in_file)
         assert in_path.exists()
-
+        
         # setup prefix and workdir
         # remove all extensions and get the true stem: ex. x.pdb.gz -> x
         self.prefix : str = in_path.name.removesuffix("".join(in_path.suffixes))
@@ -126,12 +129,14 @@ class ValidComplex(SimFileIO):
         
         # self._sort_protein_and_ligand_residues()
 
-        # check prepared receptor and ligand files
         upstream_prefix = self.prefix.replace('_complex', '')
 
-        # look for sdf
-        self.ligand_sdf = list(self.workdir.glob(f'{upstream_prefix}_*.sdf'))[0]
-        self.ligand_resname  = self.ligand_sdf.name.replace('.sdf','').replace(f'{upstream_prefix}_', '')
+        # looking for ligand SDF
+        ligand_sdf_files = list(self.workdir.glob(f'{upstream_prefix}_*.sdf'))
+        assert len(ligand_sdf_files) == 1, "more than one ligand SDF files exist"
+        self.ligand_sdf = str(ligand_sdf_files[0])
+        self.ligand_resname = self.ligand_sdf.replace(".sdf", "").replace(f"{upstream_prefix}_", "")
+        
         self.off_mol_list = Molecule.from_file(self.ligand_sdf, file_format="sdf")
         if len(self.off_mol_list) > 1:
             logger.info(f"  multiple molecules found in ligand: {self.ligand_resname} {len(self.off_mol_list)}")
@@ -348,44 +353,33 @@ class ValidComplex(SimFileIO):
         Returns:
             openmm.System: OpenMM SyStem object.
         """
+        # Remove ligand
         off_mol_res = []
         off_mol_res_info = []
-        # self.modeller = app.Modeller(self.fixer.topology, self.fixer.positions)
         for res in self.modeller.topology.residues():
             if res.name == self.ligand_resname:
-                off_mol_res_info.append({'name': res.name, 'id': res.id, 'chain': res.chain.id})
+                off_mol_res_info.append((res.chain.id, res.name, res.id))
                 off_mol_res.append(res)
+
         self.modeller.delete(off_mol_res)
 
         if self.off_mol_list:
             logger.info(f"adding ligand(s) to system..")
-            # Rebuild the complex so ligand connectivity is preserved — 
-            # e.g. load the ligand from an SDF/MOL2 with RDKit 
-            # or OpenFF (Molecule.from_file(...), which carries bond info natively), 
-            # convert to an OpenMM topology (molecule.to_topology().to_openmm()), 
-            # and merge it with the protein topology via Modeller.add(ligand_topology, ligand_positions)
             for i, mol in enumerate(self.off_mol_list):
                 if mol.partial_charges is None or len(mol.partial_charges) == 0:
                     raise ValueError("Ligand molecule must have partial charges assigned before adding to the system.")
-                ligand_topology = mol.to_topology().to_openmm()
-                ligand_positions = mol.conformers[0].to_openmm()
-                for chain in ligand_topology.chains():
-                    chain.id = off_mol_res_info[i]['chain'] # preserve original chain id
-                for residue in ligand_topology.residues():
-                    residue.name = off_mol_res_info[i]['name'] # preserve original residue name
-                    residue.id = off_mol_res_info[i]['id']     # preserve original residue id  
-                # preserve chain id and residue name/id before adding to the modeller
-                # for chain, origin in zip(ligand_topology.chains(), self.ligand_modeller.topology.chains()):
-                #     chain.id = origin.id
-                # for residue, origin in zip(ligand_topology.residues(), self.ligand_modeller.topology.residues()):
-                #     residue.name = origin.name # 3-4 letter code, whatever convention you use
-                #     residue.id = origin.id     # residue number/seqid, as a string
-                self.modeller.add(ligand_topology, ligand_positions)
-                logger.info(f"  {off_mol_res_info[i]['name']} {off_mol_res_info[i]['id']} in chain {off_mol_res_info[i]['chain']}")
+                _topology = mol.to_topology().to_openmm()
+                _positions = mol.conformers[0].to_openmm()
+                (chain_id, resname, resseq) = off_mol_res_info[i]
+                for chain in _topology.chains():
+                    chain.id = chain_id
+                for residue in _topology.residues():
+                    residue.name = resname
+                    residue.id = resseq  
+                self.modeller.add(_topology, _positions)
+                logger.info(f"  {resname} {resseq} {chain_id}")
 
-        self._check_clashes(
-            self.modeller.topology,
-            self.modeller.positions)
+        self._check_clashes(self.modeller.topology, self.modeller.positions)
         
         self.solvent = solvent
 
