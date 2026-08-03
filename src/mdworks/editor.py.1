@@ -12,158 +12,14 @@ import shutil
 import subprocess
 import string
 import logging
-import numpy as np
-import gemmi
 
-from rdkit import Chem
-from rdkit.Chem import AllChem
+import gemmi
 
 from .utils import setup_logger
 logger = logging.getLogger(__name__)
 
 
-class LigandFixer:
-    def __init__(self, 
-                 max_displacement: float = 0.5,
-                 k: float = 1000.0,
-                 max_iter: int = 500,
-                 ):
-        self.prefix : str = ''
-        self.mol_resname : str = ''
-        self.mol_smiles : str = ''
-        self.mol_pdb_block : str = ''
-        self.mol_source : Chem.Mol | None = None
-        self.mol_target : Chem.Mol | None = None
-        self.mol : Chem.Mol | None = None
-        # optimization
-        self.max_displacement: float = max_displacement
-        self.k: float = k
-        self.max_iter: int = max_iter
-
-
-    def _ligand_convert_pdb_to_smiles(self, obabel: str = shutil.which("obabel")) -> None:
-        pdbfile = f"{self.prefix}_{self.mol_resname}.pdb"
-        smifile = f"{self.prefix}_{self.mol_resname}.smi"
-        assert self.mol_pdb_block, "Molecule PDB block is not set"
-        try:
-            with open(pdbfile, 'w') as f:
-                f.write(self.mol_pdb_block)
-
-            result = subprocess.run([obabel, "-ipdb", pdbfile, "-osmi"], 
-                                    capture_output=True, 
-                                    text=True, 
-                                    check=True
-                                    )
-            output = result.stdout.strip()
-            if output:
-                smiles, name = output.split(maxsplit=1) # ex. <SMILES> <Name>
-                with open(smifile, "w") as f:
-                    f.write(f"{smiles}\n")
-
-                self.mol_smiles = smiles
-                self.mol_target = Chem.MolFromSmiles(smiles)
-                self.mol_source = Chem.MolFromPDBBlock(self.mol_pdb_block, removeHs=True, sanitize=False)
-
-            else:
-                raise ValueError(f"Openbabel returned no SMILES from {pdbfile}.")
-        except subprocess.CalledProcessError as e:
-            raise ValueError(f"Openbabel failed on {pdbfile}: {e}")
-        
-
-    
-    def _ligand_create_atom_map(self) -> dict:
-        """Create atom map between target and source molecule based on connectivity only."""
-        assert self.mol_source is not None, "Source molecule is not set"
-        assert self.mol_target is not None, "Target molecule is not set"
-
-        # Use SMARTS with any bonds (~)
-        for b in self.mol_target.GetBonds():
-            b.SetBondType(Chem.BondType.SINGLE)
-            b.SetIsAromatic(False)
-        
-        smarts = Chem.MolToSmarts(self.mol_target).replace("-", "~")
-        query = Chem.MolFromSmarts(smarts)
-        
-        match = self.mol_source.GetSubstructMatch(query)
-        if not match:
-            raise ValueError("No connectivity match found")
-            
-        return dict(enumerate(match))
-    
-    
-    def _ligand_copy_positions(self) -> None:
-        """Import 3D coordinates from source molecule."""
-        atom_map = self._ligand_create_atom_map()
-
-        target = Chem.RWMol(self.mol_target) # copy
-        # Ensure the destination molecule has a writable conformer (add one if necessary)
-        # The default behavior when setting positions is to add a conformer if none exists
-        conf = target.GetConformer(0) if target.GetNumConformers() > 0 else Chem.Conformer(target.GetNumAtoms())
-        
-        # Iterate over the map numbers and copy positions
-        for target_idx, source_idx in atom_map.items():
-            # Get the position from the source conformer
-            pos = self.mol_source.GetConformer(0).GetAtomPosition(source_idx)
-            # Set the position in the destination conformer
-            conf.SetAtomPosition(target_idx, pos)
-                
-        # Add the conformer back to the molecule if a new one was created
-        if target.GetNumConformers() == 0:
-            target.AddConformer(conf, assignId=True)
-
-        self.mol = target
-            
-    
-    def _ligand_optimize(self, save: bool = True) -> None:
-        """Optimize the molecule using MMFF94 with positional restraints."""
-        mol = Chem.AddHs(self.mol, addCoords=True)
-        
-        conf = mol.GetConformer()
-        original_coords = np.array([conf.GetAtomPosition(i) for i in range(mol.GetNumAtoms())])
-
-        # Get MMFF properties
-        mmff_props = AllChem.MMFFGetMoleculeProperties(mol, mmffVariant='MMFF94')
-        if mmff_props is None:
-            raise ValueError("Could not get MMFF properties for molecule")
-    
-        # Create force field
-        ff = AllChem.MMFFGetMoleculeForceField(mol, mmff_props, confId=0)
-        if ff is None:
-            raise ValueError("Could not create MMFF force field")
-
-        # Add positional restraints
-        restraint_count = 0
-        for i in range(mol.GetNumAtoms()):
-            atom = mol.GetAtomWithIdx(i)
-            if atom.GetAtomicNum() > 1:
-                ff.MMFFAddPositionConstraint(i, self.max_displacement, self.k)
-                restraint_count += 1
-    
-        # Optimize
-        initial_energy = ff.CalcEnergy()
-        converged = ff.Minimize(maxIts=self.max_iter)
-        final_energy = ff.CalcEnergy()
-    
-        # Calculate RMSD
-        optimized_coords = np.array([mol.GetConformer().GetAtomPosition(i) for i in range(mol.GetNumAtoms())])
-        rmsd = np.sqrt(np.mean(np.sum((original_coords - optimized_coords)**2, axis=1)))
-        logger.info(f"ligand optimized with MMFF:")
-        logger.info(f"  positional restraints on {restraint_count} atoms with k= {self.k} kJ/mol/A^2")
-        logger.info(f"  energy initial: {initial_energy:.2f} kcal/mol")
-        logger.info(f"  energy final: {final_energy:.2f} kcal/mol")
-        logger.info(f"  rmsd from original: {rmsd:.3f} Å")
-        
-        self.mol = mol
-
-        if save:
-            with Chem.SDWriter(f'{self.prefix}_{self.mol_resname}.sdf') as w:
-                for m in Chem.GetMolFrags(self.mol, asMols=True):
-                    w.write(m)
-
-
-
-
-class Editor(LigandFixer):
+class Editor:
     """Load once, chain edits, write once.
     A thin, chainable wrapper around gemmi.Structure for the structure-editing
     tasks that come up repeatedly when preparing PDB/mmCIF files for MD setup:
@@ -184,37 +40,18 @@ class Editor(LigandFixer):
     ... )
     """
 
-    std_chain_ids = list(string.ascii_uppercase + string.ascii_lowercase + string.digits)
-
-    std_residues_protein = {
-        "ALA","ARG","ASN","ASP","CYS","GLU","GLN","GLY",
-        "HIS","ILE","LEU","LYS","MET","PHE","PRO","SER",
-        "THR","TRP","TYR","VAL",
-        }
-            
-    std_residues_solvent = {
-        "HOH","NA", "K", "CL",
-        }
-    
-    std_residues_divalent_ion = {
-        "MG" , "ZN", "CA", "MN", "FE", "CU", "CO", "CD", "NI", "SR", "BA", 
-        }
-    
+    std_chain_ids = list(string.ascii_uppercase + string.ascii_lowercase + string.digits) # 62
 
     def __init__(self, 
                  structure: gemmi.Structure | None = None,
                  model_index: int = 0,
                  prefix: str = '',
                  quiet: bool = False):
-        super().__init__()
         self.structure = structure
         self.model_index = model_index
         self.prefix = prefix
-        self.quiet = quiet
         self.sel = gemmi.Selection()
-        self.is_ligand : bool = False
         workdir = Path('.')
-        # if structure is ligand, we can generate SMILES and optimize geometry with RDKit
 
         logging.getLogger().handlers.clear()
         setup_logger(logger, workdir, self.prefix, quiet=quiet)
@@ -228,6 +65,7 @@ class Editor(LigandFixer):
         """Read a PDB, mmCIF, or mmJSON file (format inferred from contents)."""
         p = Path(path)
         structure = gemmi.read_structure(str(p))
+
         structure.setup_entities()
         """
         Entity
@@ -245,11 +83,11 @@ class Editor(LigandFixer):
             ensure_entities()
             deduplicate_entities()
         """
-
+        
         prefix =  p.name.removesuffix("".join(p.suffixes))
         return cls(structure, model_index= model_index, prefix=prefix, quiet=quiet)
 
-    
+
     def show_entity(self) -> None:
         for e in self.structure.entities:
             logger.info(f"entity {e.name} ({e.entity_type}) {e.polymer_type} {e.full_sequence[:5]}...")
@@ -391,10 +229,7 @@ class Editor(LigandFixer):
 
 
     def extract(self) -> "Editor":
-        return Editor(self.sel.copy_structure_selection(self.structure), 
-                      self.model_index,
-                      self.prefix,
-                      self.quiet)
+        return Editor(self.sel.copy_structure_selection(self.structure), self.model_index)
     
 
     def delete(self, invert: bool = False) -> "Editor":
@@ -430,6 +265,30 @@ class Editor(LigandFixer):
         pdb_string = self.structure.make_pdb_string()
         return pdb_string
 
+
+    @staticmethod
+    def pdb_to_smiles(pdbfile: str, smifile: str = '', obabel: str = shutil.which("obabel")) -> None:
+        try:
+            if not smifile:
+                p = Path(pdbfile)
+                prefix = p.name.removesuffix("".join(p.suffixes))
+                smifile = f"{prefix}.smi"
+            result = subprocess.run([obabel, "-ipdb", pdbfile, "-osmi"], 
+                                    capture_output=True, 
+                                    text=True, 
+                                    check=True
+                                    )
+            output = result.stdout.strip()
+            if output:
+                # ex. <SMILES> <Name>
+                smiles, name = output.split(maxsplit=1)
+                with open(smifile, "w") as f:
+                    f.write(f"{smiles}\n")
+                logger.info(f"SMILES: {smiles}")
+            else:
+                raise ValueError(f"Could not guess SMILES from {pdbfile}.")
+        except subprocess.CalledProcessError as e:
+            raise ValueError(f"Error occurred while running obabel on {pdbfile}: {e}")
         
     # ------------------------------------------------------------------ #
     # Internal helpers
@@ -728,41 +587,6 @@ class Editor(LigandFixer):
                         zn_cys.add((cra.chain.name, cra.residue.seqid.num))
                         logger.info(f"Found a zinc coordinating CYS at {cra.chain.name} {cra.residue.seqid.num}")
         return zn_cys
-
-
-    def group_residues(self) -> dict[str, set]:
-        """Sort protein and ligand."""
-        groups: list[str] = ['protein', 'solvent', 'divalent', 'ligand']
-        residue_group = {k: set() for k in groups}
-
-        for chain in self.model:
-            for res in chain:
-                if res.name in self.std_residues_protein:
-                    residue_group['protein'].add(res.name)
-
-                elif res.name in self.std_residues_solvent:
-                    residue_group['solvent'].add(res.name)
-                
-                elif res.name in self.std_residues_divalent_ion:
-                    residue_group['divalent'].add(res.name)
-                
-                else:
-                    residue_group['ligand'].add(res.name)
-                    logger.info(f"ligand residue found {res.name}")
-
-        return residue_group
-    
-    
-    def set_as_ligand(self, resname: str, obabel: str = shutil.which("obabel")) -> "Editor":
-        """Set ligand name and SMILES for structure (ligand)"""
-        self.is_ligand = True
-        self.mol_resname = resname
-        self.mol_pdb_block = self.structure.make_pdb_string()
-        self._ligand_convert_pdb_to_smiles(obabel=obabel)
-        self._ligand_copy_positions()
-        self._ligand_optimize(save=True)
-        return self
-
 
     # ------------------------------------------------------------------ #
     # Introspection

@@ -86,11 +86,11 @@ def do_not_add_missing_atoms_at_terminals(fixer: PDBFixer) -> None:
         if is_n_terminal or is_c_terminal:
             skipped_missing_residues[key] = fixer.missingResidues.pop(key)
             if is_n_terminal:
-                logger.info(f"{n} residues missing at {chain.id}:{at:<4d} {','.join(resnames[:3])}.. (N-ter; skipped)")
+                logger.info(f"missing {n:<2d} residues at {chain.id}:{at:<4d} {','.join(resnames[:3])}.. (N-ter; skipped)")
             if is_c_terminal:
-                logger.info(f"{n} residues missing at {chain.id}:{at:<4d} {','.join(resnames[:3])}.. (C-ter; skipped)")
+                logger.info(f"missing {n:<2d} residues at {chain.id}:{at:<4d} {','.join(resnames[:3])}.. (C-ter; skipped)")
         else:
-            logger.info(f"{n} residues missing at {chain.id}:{at:<4d} {','.join(resnames[:3])}..")
+            logger.info(f"missing {n:<2d} residues at {chain.id}:{at:<4d} {','.join(resnames[:3])}..")
 
        
 
@@ -98,7 +98,7 @@ def complex(
         filename: str | None = None, 
         ligand_resname: str | None = None,
         waters: bool = False,
-        separate_hetgens: bool = True,
+        separate_hetgens: bool = False,
         zinc: bool = True,
         terminals: bool = False,
         obabel: str | None = shutil.which("obabel"),
@@ -116,13 +116,18 @@ def complex(
     logging.getLogger().handlers.clear()
     setup_logger(logger, workdir, output_prefix, quiet=quiet)
 
-    fixed_pdb_file = f"{output_prefix}_fixed.pdb"  
+    fixed_receptor_pdb = f"{output_prefix}_noH.pdb"
     protonated_receptor_pqr = f"{output_prefix}_H.pqr"  
     protonated_receptor_pdb = f"{output_prefix}_H.pdb"
-    cmplx_cif_file = f"{output_prefix}_complex.cif"
+    protonated_complex_cif = f"{output_prefix}_complex.cif"
 
     st = Editor.load(filename)
     ligand = None
+
+    st = st.standardize_chain_id()
+    # _atom_site.auth_asym_id is changed to standard chain id,
+    # but _atom_site.label_asym_id is not changed, so we need to update it to match the new chain id.
+    # st = st.update_label_asym_id()
 
     if not waters:
         st = st.remove_waters()
@@ -137,19 +142,25 @@ def complex(
 
     if ligand_resname and obabel:
         logger.info(f"[Step 0] Extracting Ligand {ligand_resname} ...")
-        ligand_pdb = f"{output_prefix}_{ligand_resname}.pdb"
-        ligand_smi = f"{output_prefix}_{ligand_resname}.smi"
-        ligand = st.select(expr=ligand_resname).extract()
-        ligand.write(ligand_pdb)
-        logger.info(f"Extracted ligand {ligand_resname} saved to {ligand_pdb}")
-        Editor.pdb_to_smiles(pdbfile=ligand_pdb, smifile=ligand_smi, obabel=obabel)
-        # extract_ligand(filename, ligand_resname, ligand_pdb)
-        # pdb_to_smiles(ligand_pdb)
-        logger.info(f"Extracted ligand {ligand_resname} saved to {ligand_smi}")
+        # ligand_pdb = f"{output_prefix}_{ligand_resname}.pdb"
+        # ligand_smi = f"{output_prefix}_{ligand_resname}.smi"
+        st = st.select(expr=ligand_resname)
+        ligand = st.extract().set_as_ligand(resname=ligand_resname)
+        # structure may have multiple ligand molecules, and they will be saved in a single PDB file
+        # ligand.write(ligand_pdb)
+        # logger.info(f"Extracted ligand {ligand_resname} saved to {ligand_pdb}")
+        # Editor.pdb_to_smiles(pdbfile=ligand_pdb, smifile=ligand_smi, obabel=obabel)
+        # if multiple ligand molecules are present, the SMILES file will contain multiple structures
+        # separated by period symbols
+        # logger.info(f"Extracted ligand {ligand_resname} saved to {ligand_smi}")
+        # Remove ligand from the structure to be fixed, so that PDBFixer/PDB2PQR will not remove it
+        receptor = st.delete()
+    else:
+        receptor = st
         
     logger.info(f"[Step 1] PDBFixer fixing ...")
 
-    cif_string = st.to_mmcif_str()
+    cif_string = receptor.to_mmcif_str()
     fixer = PDBFixer(pdbxfile= StringIO(cif_string))
     
     # PDBFixer uses geometry template to fill in missing residues and atoms, 
@@ -183,20 +194,19 @@ def complex(
         
     # Add missing heavy atoms (but do not add hydrogens yet; PDB2PQR will do that)
     fixer.addMissingAtoms()
-    fixer.removeChains(chainIndices=[-1])
 
-    # Write intermediate fixed heavy-atom structure  
-    with open(fixed_pdb_file, "w") as f:  
+    # Write fixed heavy-atom receptor structure
+    with open(fixed_receptor_pdb, "w") as f:
         PDBFile.writeFile(fixer.topology, fixer.positions, f, keepIds=True)  
-        logger.info(f"PDBFixer fixed heavy atoms and saved to {fixed_pdb_file}")
+        logger.info(f"PDBFixer fixed heavy atoms and saved to {fixed_receptor_pdb}")
 
-    logger.info(f"[Step 2] PDB2PQR predicting pKa at pH {target_ph} and protonating ...")
-    # PDB2PQR automatically removes ligand
+    logger.info(f"[Step 2] PDB2PQR protonating with target pH {target_ph} ...")
+    # PDB2PQR automatically removes ligand if it is present in the input PDB file.
     pdb2pqr_args = [
         "--ff=AMBER", 
         f"--with-ph={target_ph}",
         f"--pdb-output={protonated_receptor_pdb}",
-        fixed_pdb_file,
+        fixed_receptor_pdb,
         protonated_receptor_pqr]
     parser = build_main_parser()
     parsed_pdb2pqr_args = parser.parse_args(pdb2pqr_args)
@@ -208,6 +218,5 @@ def complex(
 
     if ligand:
         logger.info(f"[Step 3] Merging protonated receptor and original ligand {ligand_resname} ...")
-        Editor.load(protonated_receptor_pdb).merge(ligand).write(cmplx_cif_file)
-        # merge_receptor_and_ligand(protonated_receptor_pdb, ligand_pdb, cmplx_cif_file)
-        logger.info(f"Merged complex saved to {cmplx_cif_file}")
+        Editor.load(protonated_receptor_pdb).merge(ligand).write(protonated_complex_cif)
+        logger.info(f"Merged complex saved to {protonated_complex_cif}")

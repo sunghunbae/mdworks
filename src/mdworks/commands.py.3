@@ -291,7 +291,7 @@ def relax(
     if smiles:
         assert Chem.MolFromSmiles(smiles) is not None, f"Invalid SMILES string: {smiles}"
 
-    vc = ValidComplex(filename)
+    vc = ValidComplex(filename)    
 
     if smiles:
         vc.fix_ligand(smiles)

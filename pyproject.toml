@@ -1,6 +1,6 @@
 [project]
 name = "mdworks"
-version = "0.25.11"
+version = "0.26.2"
 description = "Streamlines preparation and equilibration of molecular complex for MD simulations"
 readme = "README.md"
 authors = [{name = "Sung-Hun Bae", email = "sunghun.bae@gmail.com"}]
@@ -45,6 +45,7 @@ gemmi = ">=0.7.5,<0.8"
 cyclopts = ">=4.22.0,<5"
 ipykernel = ">=7.1.0,<8"
 twine = ">=6.2.0,<7"
+openff-nagl = ">=0.5.5,<0.6"
 
 [tool.pixi.pypi-dependencies]
 mdworks = { path = ".", editable = true }
