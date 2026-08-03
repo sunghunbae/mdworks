@@ -2,7 +2,6 @@ __all__ = ['ValidComplex',]
 
 import io
 import gzip
-import string
 import logging
 import numpy as np
 
@@ -10,17 +9,13 @@ from pathlib import Path
 from typing import Iterable
 from importlib.metadata import version
 
-from rdkit import Chem
-from rdkit.Chem import AllChem
-
 try:
-    from pdbfixer import PDBFixer
     from openff.toolkit.topology.molecule import Molecule
     from openff.toolkit.utils.nagl_wrapper import NAGLToolkitWrapper
     from openmmforcefields.generators import SMIRNOFFTemplateGenerator
     from openmm import app, unit, CustomExternalForce, NonbondedForce
 except ImportError:
-    raise ImportError("install openmm, openmmforcefields, pdbfixer, and openff-toolkit from conda-forge.\n")
+    raise ImportError("install openmm, openmmforcefields, and openff-toolkit from conda-forge.\n")
 
 from .simfileio import SimFileIO
 from .utils import setup_logger
@@ -58,26 +53,12 @@ class ValidComplex(SimFileIO):
         "MG" , "ZN", "CA", "MN", "FE", "CU", "CO", "CD", "NI", "SR", "BA", 
         }
     
-    def __init__(self, 
-                 in_file: str | Path,
-                 workdir: Path | str | None = None,
-                 remove_solvent: bool = True,
-                 pH: float = 7.0, 
-                 max_displacement: float = 0.5,
-                 k: float = 1000.0,
-                 max_iter: int = 500,
-                 quiet: bool = False,                
-                 ):
-        """Initialize class object.
+    def __init__(self, in_file: str | Path, workdir: Path | str | None = None, quiet: bool = False):
+        """Initialize ValidComplex class object.
 
         Args:
             in_file (str | Path): input complex structure in PDB or MMCIF format.
             workdir (Path | str | None, optional): working directory. Defaults to None.
-            remove_solvent (bool, optional): whether to remove solvent molecules. Defaults to True.
-            pH (float, optional): pH to be considered when adding hydrogens. Defaults to 7.0.
-            max_displacement (float, optional): max displacement (in A) during restrained optimization of ligand. Defaults to 0.5.
-            k (float, optional): force constant during restrained optimization. Defaults to 1000.0.
-            max_iter (int, optional): max number of iteration in restrained optimization. Defaults to 500.
             quiet (bool, optional): whether to suppress logging. Defaults to False.
         """
         assert isinstance(in_file, str) or isinstance(in_file, Path)
@@ -86,59 +67,51 @@ class ValidComplex(SimFileIO):
 
         # setup prefix and workdir
         # remove all extensions and get the true stem: ex. x.pdb.gz -> x
-        self.prefix = in_path.name.removesuffix("".join(in_path.suffixes))
+        self.prefix : str = in_path.name.removesuffix("".join(in_path.suffixes))
         if isinstance(workdir, str) or isinstance(workdir, Path):
             self.workdir = Path(workdir)
             self.workdir.mkdir(exist_ok=True)
         else:
             self.workdir = in_path.parent
 
-        self.mem_protein : io.StringIO = io.StringIO()
-        self.mem_ligand : io.StringIO = io.StringIO()
-        self.mem_ligand_charges: io.StringIO = io.StringIO()
-        self.remove_solvent : bool = remove_solvent
-        self.pH : float = pH
+        # self.mem_protein : io.StringIO = io.StringIO()
+        # self.mem_ligand : io.StringIO = io.StringIO()
+        # self.mem_ligand_charges: io.StringIO = io.StringIO()
         
         # ligand
-        self.smiles : str = ''
-        self.rdmol : Chem.Mol = Chem.Mol()
-        self.rdmolH : Chem.Mol = Chem.Mol() # with hydrogens and 3D coords
-
-        self.atom_map : dict = {} # mapping from self.rdmol to source molecule
-        self.source : Chem.Mol = Chem.Mol()
-
-        self.off_mol_info : list[dict] = []
-        self.off_mol_list : list[Molecule] = [] # for structure with multiple ligands
         self.off_mol : Molecule = Molecule()
-
+        self.off_mol_list : list[Molecule] = [] # for structure with multiple ligands
+        
         # solvent
         self.solvent : str = 'tip3p'
         self.solvent_implicit : bool = False
 
-        # optimization
-        self.max_displacement: float = max_displacement
-        self.k: float = k
-        self.max_iter: int = max_iter
-
-        if in_path.name.endswith(".pdb.gz"):
-            with gzip.open(in_file, "rt") as f:
-                self.fixer = PDBFixer(pdbfile= f) 
-                # pdbfile: file-like object from which the PDB file is to be read
-        elif in_path.name.endswith(".cif.gz"):
-            with gzip.open(in_file, "rt") as f:
-                self.fixer = PDBFixer(pdbxfile= f)
-                # pdbxfile: file-like object from which the PDBx/mmCIF file is to be read
-        else:
-            self.fixer = PDBFixer(filename= in_file)
-            # filename: name of the file to read. The format is determined automatically
-            # based on the filename extension, or if that is ambiguous, by looking at the
-            # file content
-
-        self.protein_modeller = None
-        self.ligand_modeller = None
+        # self.protein_modeller = None
+        # self.ligand_modeller = None
         self.modeller = None
         self.restrained = []
         self.system = None
+
+        extension = "".join(in_path.suffixes).lower()
+
+        if extension == ".cif":
+            st = app.PDBxFile(str(in_path))
+            self.modeller = app.Modeller(st.getTopology(), st.getPositions())
+
+        elif extension == ".pdb":
+            st = app.PDBFile(str(in_path))
+            self.modeller = app.Modeller(st.getTopology(), st.getPositions())
+
+        elif extension == ".cif.gz":
+            with gzip.open(in_file, "rt") as f:
+                st = app.PDBxFile(f)
+                self.modeller = app.Modeller(st.getTopology(), st.getPositions())
+                # pdbxfile: file-like object from which the PDBx/mmCIF file is to be read
+        
+        elif extension == ".pdb.gz":
+            with gzip.open(in_file, "rt") as f:
+                st = app.PDBFile(f)
+                self.modeller = app.Modeller(st.getTopology(), st.getPositions())
         
         setup_logger(logger, self.workdir, self.prefix, quiet=quiet)
 
@@ -151,70 +124,80 @@ class ValidComplex(SimFileIO):
         logger.info(f"workdir= {self.workdir}")
         logger.info(f"prefix= {self.prefix}")
         
-        self._sort_protein_and_ligand_residues()
+        # self._sort_protein_and_ligand_residues()
+
+        # check prepared receptor and ligand files
+        upstream_prefix = self.prefix.replace('_complex', '')
+
+        # look for sdf
+        self.ligand_sdf = list(self.workdir.glob(f'{upstream_prefix}_*.sdf'))[0]
+        self.ligand_resname  = self.ligand_sdf.name.replace('.sdf','').replace(f'{upstream_prefix}_', '')
+        self.off_mol_list = Molecule.from_file(self.ligand_sdf, file_format="sdf")
+        if len(self.off_mol_list) > 1:
+            logger.info(f"  multiple molecules found in ligand: {self.ligand_resname} {len(self.off_mol_list)}")
 
 
-    def _sort_protein_and_ligand_residues(self) -> None:
-        """Sort protein and ligand."""
-        groups: list[str] = ['protein', 'solvent', 'divalent', 'ligand']
-        residue_group = {k: set() for k in groups}
-        for res in self.fixer.topology.residues():
-            if res.name in ValidComplex.std_protein_residues:
-                residue_group['protein'].add(res.name)
-            elif res.name in ValidComplex.std_solvent_residues:
-                residue_group['solvent'].add(res.name)
-            elif res.name in ValidComplex.std_divalent_ion_residues:
-                residue_group['divalent'].add(res.name)
-            else:
-                residue_group['ligand'].add(res.name)
-                logger.info(f"ligand residue found {res.name}")
+    # def _sort_protein_and_ligand_residues(self) -> None:
+    #     """Sort protein and ligand."""
+    #     groups: list[str] = ['protein', 'solvent', 'divalent', 'ligand']
+    #     residue_group = {k: set() for k in groups}
+    #     for res in self.fixer.topology.residues():
+    #         if res.name in ValidComplex.std_protein_residues:
+    #             residue_group['protein'].add(res.name)
+    #         elif res.name in ValidComplex.std_solvent_residues:
+    #             residue_group['solvent'].add(res.name)
+    #         elif res.name in ValidComplex.std_divalent_ion_residues:
+    #             residue_group['divalent'].add(res.name)
+    #         else:
+    #             residue_group['ligand'].add(res.name)
+    #             logger.info(f"ligand residue found {res.name}")
 
-        # protein (including structural divalent ions)
-        logger.info("protein preparation:")
-        self.protein_modeller = app.Modeller(self.fixer.topology, self.fixer.positions)
-        residues_to_delete = []
-        for res in self.protein_modeller.topology.residues():
-            if (self.remove_solvent and (res.name in residue_group['solvent'])) or \
-                (res.name in residue_group['ligand']):
-                logger.info(f"  deleting: {res}")
-                residues_to_delete.append(res)
-        self.protein_modeller.delete(residues_to_delete)
+    #     # protein (including structural divalent ions)
+    #     logger.info("protein preparation:")
+    #     self.protein_modeller = app.Modeller(self.fixer.topology, self.fixer.positions)
+    #     residues_to_delete = []
+    #     for res in self.protein_modeller.topology.residues():
+    #         if (self.remove_solvent and (res.name in residue_group['solvent'])) or \
+    #             (res.name in residue_group['ligand']):
+    #             logger.info(f"  deleting: {res}")
+    #             residues_to_delete.append(res)
+    #     self.protein_modeller.delete(residues_to_delete)
 
-        # non-standard residues        
-        for res in self.protein_modeller.topology.residues():
-            if res.name not in ValidComplex.std_protein_residues:
-                logger.info(f"  including non-protein: {res}")
-        logger.info(f"  number of residues: {self.protein_modeller.topology.getNumResidues()}")
-        self._check_clashes(
-            self.protein_modeller.topology, 
-            self.protein_modeller.positions)
+    #     # non-standard residues        
+    #     for res in self.protein_modeller.topology.residues():
+    #         if res.name not in ValidComplex.std_protein_residues:
+    #             logger.info(f"  including non-protein: {res}")
+    #     logger.info(f"  number of residues: {self.protein_modeller.topology.getNumResidues()}")
+    #     self._check_clashes(
+    #         self.protein_modeller.topology, 
+    #         self.protein_modeller.positions)
 
-        # ligand
-        logger.info("ligand preparation:")
-        self.ligand_modeller = app.Modeller(self.fixer.topology, self.fixer.positions)
-        residues_to_delete = []
-        for res in self.ligand_modeller.topology.residues():
-            if res.name in residue_group['protein'] or \
-               res.name in residue_group['solvent'] or \
-               res.name in residue_group['divalent']:
-                residues_to_delete.append(res)
-            else:
-                logger.info(f"  keeping: {res}")
-                self.off_mol_info.append({'name': res.name, 'id': res.id, 'chain': res.chain.id})
+    #     # ligand
+    #     logger.info("ligand preparation:")
+    #     self.ligand_modeller = app.Modeller(self.fixer.topology, self.fixer.positions)
+    #     residues_to_delete = []
+    #     for res in self.ligand_modeller.topology.residues():
+    #         if res.name in residue_group['protein'] or \
+    #            res.name in residue_group['solvent'] or \
+    #            res.name in residue_group['divalent']:
+    #             residues_to_delete.append(res)
+    #         else:
+    #             logger.info(f"  keeping: {res}")
+    #             self.off_mol_info.append({'name': res.name, 'id': res.id, 'chain': res.chain.id})
 
-        self.ligand_modeller.delete(residues_to_delete)
-        logger.info(f"  number of residues: {self.ligand_modeller.topology.getNumResidues()}")
+    #     self.ligand_modeller.delete(residues_to_delete)
+    #     logger.info(f"  number of residues: {self.ligand_modeller.topology.getNumResidues()}")
 
-        app.PDBFile.writeFile(
-            self.ligand_modeller.topology,
-            self.ligand_modeller.positions,
-            self.mem_ligand,
-            keepIds=False
-        )
-        # keepIds (optional): A boolean value (default is False). 
-        # If True, the residue and chain IDs specified in the Topology are used; 
-        # otherwise, new ones are generated. The caller is responsible 
-        # for ensuring the IDs are PDB-compliant if this is set to True
+    #     app.PDBFile.writeFile(
+    #         self.ligand_modeller.topology,
+    #         self.ligand_modeller.positions,
+    #         self.mem_ligand,
+    #         keepIds=False
+    #     )
+    #     # keepIds (optional): A boolean value (default is False). 
+    #     # If True, the residue and chain IDs specified in the Topology are used; 
+    #     # otherwise, new ones are generated. The caller is responsible 
+    #     # for ensuring the IDs are PDB-compliant if this is set to True
 
 
     def _add_posres(self, k: float = 1000.0, exclude: Iterable | None = None) -> None:
@@ -265,157 +248,34 @@ class ValidComplex(SimFileIO):
         logger.info(f"  k= {k} kJ/mol/nm**2")
 
         
-    def _create_atom_map(self) -> dict:
-        """Create atom map between self.rdmol and source molecule based on connectivity only."""
 
-        target = Chem.RWMol(self.rdmol) # copy
-        
-        # Use SMARTS with any bonds (~)
-        for b in target.GetBonds():
-            b.SetBondType(Chem.BondType.SINGLE)
-            b.SetIsAromatic(False)
-        
-        smarts = Chem.MolToSmarts(target).replace("-", "~")
-        query = Chem.MolFromSmarts(smarts)
-        
-        match = self.source.GetSubstructMatch(query)
-        if not match:
-            raise ValueError("No connectivity match found")
-            
-        return dict(enumerate(match))
-
-
-    def _import_coord(self) -> Chem.Mol:
-        """Import 3D coordinates from source molecule."""
-
-        target = Chem.RWMol(self.rdmol) # copy
-        
-        if not self.atom_map:
-            self.create_atom_map(self.source)
-            
-        # Check if molecules have conformers
-        if self.source.GetNumConformers() == 0:
-            raise ValueError("Source molecule needs coordinates (conformers) first.")
-    
-        # Ensure the destination molecule has a writable conformer (add one if necessary)
-        # The default behavior when setting positions is to add a conformer if none exists
-        conf = target.GetConformer(0) if target.GetNumConformers() > 0 else Chem.Conformer(target.GetNumAtoms())
-        
-        # Iterate over the map numbers and copy positions
-        for target_idx, source_idx in self.atom_map.items():
-            # Get the position from the source conformer
-            pos = self.source.GetConformer(0).GetAtomPosition(source_idx)
-            # Set the position in the destination conformer
-            conf.SetAtomPosition(target_idx, pos)
-                
-        # Add the conformer back to the molecule if a new one was created
-        if target.GetNumConformers() == 0:
-            target.AddConformer(conf, assignId=True)
-    
-        return target
-        
-
-
-    def _optimize(self) -> Chem.Mol:
-        """Optimize the molecule using MMFF94 with positional restraints."""
-
-        mol = Chem.AddHs(self.rdmol, addCoords=True)
-        
-        conf = mol.GetConformer()
-        original_coords = np.array([conf.GetAtomPosition(i) for i in range(mol.GetNumAtoms())])
-
-        # Get MMFF properties
-        mmff_props = AllChem.MMFFGetMoleculeProperties(mol, mmffVariant='MMFF94')
-        if mmff_props is None:
-            raise ValueError("Could not get MMFF properties for molecule")
-    
-        # Create force field
-        ff = AllChem.MMFFGetMoleculeForceField(mol, mmff_props, confId=0)
-        if ff is None:
-            raise ValueError("Could not create MMFF force field")
-
-        # Add positional restraints
-        restraint_count = 0
-        for i in range(mol.GetNumAtoms()):
-            atom = mol.GetAtomWithIdx(i)
-            if atom.GetAtomicNum() > 1:
-                ff.MMFFAddPositionConstraint(i, self.max_displacement, self.k)
-                restraint_count += 1
-    
-        # Optimize
-        initial_energy = ff.CalcEnergy()
-        converged = ff.Minimize(maxIts=self.max_iter)
-        final_energy = ff.CalcEnergy()
-    
-        # Calculate RMSD
-        optimized_coords = np.array([mol.GetConformer().GetAtomPosition(i) for i in range(mol.GetNumAtoms())])
-        rmsd = np.sqrt(np.mean(np.sum((original_coords - optimized_coords)**2, axis=1)))
-        logger.info(f"ligand optimized with MMFF:")
-        logger.info(f"  positional restraints on {restraint_count} atoms with k= {self.k} kJ/mol/A^2")
-        logger.info(f"  energy initial: {initial_energy:.2f} kcal/mol")
-        logger.info(f"  energy final: {final_energy:.2f} kcal/mol")
-        logger.info(f"  rmsd from original: {rmsd:.3f} Å")
-        
-        return mol
-
-
-    def fix_ligand(self, smiles: str) -> None:
-        """Fix stereochemistry of ligand with restrained geometry optimization.
-
-        Args:
-            smiles (str): target SMILES.
-
-        Returns:
-            None
-        """
-        logger.info(f"ligand fixed with SMILES:")
-        logger.info(f"  {smiles}")
-        self.smiles = smiles
-        self.rdmol = Chem.MolFromSmiles(smiles)
-        self.source = Chem.MolFromPDBBlock(self.mem_ligand.getvalue(), removeHs=True, sanitize=False)
-        self.atom_map = self._create_atom_map()
-        self.rdmol = self._import_coord()
-        self.rdmolH = self._optimize()
-        self.off_mol_list = [Molecule.from_rdkit(m) for m in Chem.GetMolFrags(self.rdmolH, asMols=True)]
-        if len(self.off_mol_list) > 1:
-            logger.info(f"  multiple molecules found in ligand: {len(self.off_mol_list)}")
-
-
-    def assign_ligand_charges(self, partial_charge_method: str ='nagl', filename: str = '') -> None:
+    def assign_ligand_charges(self, partial_charge_method: str ='nagl') -> None:
         """Assign ligand charges.
 
         Args:
             partial_charge_method (str, optional): charge assignment method. Defaults to 'am1bcc'.
                 set 'import' to load saved charges in the sdf file.
         """
-        
-        if not filename:
-            filename = self.workdir / f'{self.prefix}_ligand.sdf'
-
-        if partial_charge_method == 'import':
-            logger.info(f"partial charges assigned by importing {filename}")
-            off_mol_list = Molecule.from_file(filename, file_format="sdf")
-            self.off_mol = off_mol_list[0]  # Use the first molecule for charge assignment
-            return
+        self.off_mol = self.off_mol_list[0]
 
         logger.info(f"partial charges assigned with {partial_charge_method}")
 
-        self.off_mol = self.off_mol_list[0]
-
         if partial_charge_method in ['am1bcc', 'gasteiger', 'mmff94', 'mmff94s']:        
             self.off_mol.assign_partial_charges(partial_charge_method= partial_charge_method)
-
         elif partial_charge_method == 'nagl':
             nagl_wrapper = NAGLToolkitWrapper()
             self.off_mol.assign_partial_charges(
                 partial_charge_method="openff-gnn-am1bcc-1.0.0.pt",
                 toolkit_registry=nagl_wrapper
             )
+        elif partial_charge_method == 'import':
+            pass
 
         if self.off_mol.partial_charges is None or len(self.off_mol.partial_charges) == 0:
             raise ValueError("partial charges are not assigned")
         
         logger.info(f"copying partial charges to {len(self.off_mol_list)} ligand molecule(s)..")
+
         for mol in self.off_mol_list:
             mol.partial_charges = self.off_mol.partial_charges
 
@@ -424,10 +284,9 @@ class ValidComplex(SimFileIO):
         # partial charges are cloned from the first molecule to all other molecules in the SDF file.
         # Get the partial charges (includes units, e.g., elementary_charge)
 
-        with open(filename, "w") as f:
+        with open(self.ligand_sdf, "w") as f:
             for mol in self.off_mol_list:
                 mol.to_file(f, file_format='sdf')
-                mol.to_file(self.mem_ligand_charges, file_format='sdf') # memory
         
 
     def _add_explicit_solvent(self) -> None:
@@ -446,25 +305,6 @@ class ValidComplex(SimFileIO):
             positiveIon= self.positive_ion,
             negativeIon= self.negative_ion
         )
-
-
-    @staticmethod
-    def _chain_id_order(char):
-        if char.isupper():
-            return (0, char)  # Highest priority (0)
-        elif char.islower():
-            return (1, char)  # Medium priority (1)
-        elif char.isdigit():
-            return (2, char)  # Lowest priority (2)
-        else:
-            return (3, char)  # Fallback for symbols/punctuation
-
-
-    def _next_chain_id(self) -> str:
-        std_chain_ids = set(string.ascii_uppercase + string.ascii_lowercase + string.digits) # 62
-        chain_ids = list(self.modeller.chains())
-        unused_chain_ids = sorted(list(std_chain_ids - set(chain_ids)), key=ValidComplex._chain_id_order)
-        return unused_chain_ids[0] 
 
     
     def build(self,
@@ -508,12 +348,16 @@ class ValidComplex(SimFileIO):
         Returns:
             openmm.System: OpenMM SyStem object.
         """
-        self.modeller = app.Modeller(
-            self.protein_modeller.topology, 
-            self.protein_modeller.positions,
-            )
+        off_mol_res = []
+        off_mol_res_info = []
+        # self.modeller = app.Modeller(self.fixer.topology, self.fixer.positions)
+        for res in self.modeller.topology.residues():
+            if res.name == self.ligand_resname:
+                off_mol_res_info.append({'name': res.name, 'id': res.id, 'chain': res.chain.id})
+                off_mol_res.append(res)
+        self.modeller.delete(off_mol_res)
 
-        if self.off_mol_list and self.off_mol_info:
+        if self.off_mol_list:
             logger.info(f"adding ligand(s) to system..")
             # Rebuild the complex so ligand connectivity is preserved — 
             # e.g. load the ligand from an SDF/MOL2 with RDKit 
@@ -526,10 +370,10 @@ class ValidComplex(SimFileIO):
                 ligand_topology = mol.to_topology().to_openmm()
                 ligand_positions = mol.conformers[0].to_openmm()
                 for chain in ligand_topology.chains():
-                    chain.id = self.off_mol_info[i]['chain'] # preserve original chain id
+                    chain.id = off_mol_res_info[i]['chain'] # preserve original chain id
                 for residue in ligand_topology.residues():
-                    residue.name = self.off_mol_info[i]['name'] # preserve original residue name
-                    residue.id = self.off_mol_info[i]['id']     # preserve original residue id  
+                    residue.name = off_mol_res_info[i]['name'] # preserve original residue name
+                    residue.id = off_mol_res_info[i]['id']     # preserve original residue id  
                 # preserve chain id and residue name/id before adding to the modeller
                 # for chain, origin in zip(ligand_topology.chains(), self.ligand_modeller.topology.chains()):
                 #     chain.id = origin.id
@@ -537,7 +381,7 @@ class ValidComplex(SimFileIO):
                 #     residue.name = origin.name # 3-4 letter code, whatever convention you use
                 #     residue.id = origin.id     # residue number/seqid, as a string
                 self.modeller.add(ligand_topology, ligand_positions)
-                logger.info(f"  {self.off_mol_info[i]['name']} {self.off_mol_info[i]['id']} in chain {self.off_mol_info[i]['chain']}")
+                logger.info(f"  {off_mol_res_info[i]['name']} {off_mol_res_info[i]['id']} in chain {off_mol_res_info[i]['chain']}")
 
         self._check_clashes(
             self.modeller.topology,
@@ -720,10 +564,10 @@ class ValidComplex(SimFileIO):
         bonded_13, bonded_14 = self._get_13_14_atom_pairs(topology)
 
         # close atom pair indices excluding bonded (1-2), 1-3, and 1-4
-        clashing_atoms = [(i, j) for i, j in zip(*close_atom_pair_indices) if not ((i,j) in bonded or (i,j) in bonded_13 or (i,j) in bonded_14)]
+        close_atoms = [(i, j) for i, j in zip(*close_atom_pair_indices) if not ((i,j) in bonded or (i,j) in bonded_13 or (i,j) in bonded_14)]
 
-        logger.info(f"  clashing atom pairs (distance < {threshold} A): {len(clashing_atoms)}")
-        for i, j in clashing_atoms:
+        logger.info(f"  close atom pairs (distance < {threshold} A): {len(close_atoms)}")
+        for i, j in close_atoms:
             a1 = list(topology.atoms())[i]
             a2 = list(topology.atoms())[j]
             a1_id = f'{a1.residue.name:<4} {a1.residue.id:<4} {a1.name:<4}'

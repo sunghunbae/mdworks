@@ -3,7 +3,9 @@
 - [`ready`] set `--separate-hetgen` as False by default
 - [`ready`] fixer saves fixed receptor instead of fixed complex
 - [`ready`] handles presence of multiple ligands (ex. two ligands in each protomer in a dimer)
+- [`ready`] fixing ligand is performed within Editor
 - [`relax`] charge assignment for multiple ligands
+- 
    
 ## 0.17.0
 - added `--desmond` option to `mdworks equi` command

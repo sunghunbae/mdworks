@@ -28,6 +28,13 @@ class LigandFixer:
                  k: float = 1000.0,
                  max_iter: int = 500,
                  ):
+        """Fix small molecule ligand.
+
+        Args:
+            max_displacement (float, optional): maximum displacement during optimization. Defaults to 0.5.
+            k (float, optional): force constant for positional restraints (kJ/mol/A**2). Defaults to 1000.0.
+            max_iter (int, optional): maximum number of iteration. Defaults to 500.
+        """
         self.prefix : str = ''
         self.mol_resname : str = ''
         self.mol_smiles : str = ''
@@ -112,10 +119,49 @@ class LigandFixer:
             target.AddConformer(conf, assignId=True)
 
         self.mol = target
+
             
-    
+    def _ligand_sync_positions(self) -> None:
+        """Synchronize self.mol atomic positions with gemmi structure Atom() positions"""
+        individual_mols = list(Chem.GetMolFrags(self.mol, asMols=True))
+        num_residues = sum([1 for chain in self.model for residue in chain])
+        assert num_residues == len(individual_mols), "number of residues do not match"
+        
+        individual_residues = [] # list of list
+
+        for _rdmol in individual_mols:
+            _conformer = _rdmol.GetConformer()
+            _residue_atoms = []
+            for i, rd_atom in enumerate(_rdmol.GetAtoms()):
+                _atom = gemmi.Atom()
+                _atom.name = rd_atom.GetSymbol() + str(i+1)
+                _atom.element = gemmi.Element(rd_atom.GetSymbol())
+                _atom.charge = rd_atom.GetFormalCharge()
+                # Set spatial properties
+                pos = _conformer.GetAtomPosition(i)
+                _atom.pos = gemmi.Position(pos.x, pos.y, pos.z)               
+                # Set standard crystallographic defaults
+                _atom.occ = 1.0
+                _atom.b_iso = 20.0
+                # Append atom up through the Gemmi hierarchy
+                _residue_atoms.append(_atom)
+            individual_residues.append(_residue_atoms)
+
+        for chain in self.model:
+            for residue in chain:
+                logger.info(f"synchronizing {residue.name} {residue.seqid.num} {chain.name}")
+                # clear all atoms
+                while len(residue) > 0:
+                    del residue[0]
+                # re-populate atoms
+                _residue_atoms = individual_residues.pop(0)
+                for _atom in _residue_atoms:
+                    residue.add_atom(_atom)
+
+
     def _ligand_optimize(self, save: bool = True) -> None:
         """Optimize the molecule using MMFF94 with positional restraints."""
+        # adding hydrogens
         mol = Chem.AddHs(self.mol, addCoords=True)
         
         conf = mol.GetConformer()
@@ -154,6 +200,7 @@ class LigandFixer:
         logger.info(f"  rmsd from original: {rmsd:.3f} Å")
         
         self.mol = mol
+        self._ligand_sync_positions()
 
         if save:
             with Chem.SDWriter(f'{self.prefix}_{self.mol_resname}.sdf') as w:

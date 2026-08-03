@@ -4,9 +4,8 @@ import cyclopts
 from pathlib import Path
 
 import mdworks.mmcif as mmcif
-import mdworks.ready as mdready
 
-from mdworks import Editor, ValidComplex
+from mdworks import Editor, ReadyPipeline, ValidComplex 
 from mdworks.protocol import Relax, Equilibrium, Desmond, Production
 
 from rdkit import Chem
@@ -189,10 +188,10 @@ def ready(
     /,
     *,
     ligand: str = "",
-    waters: bool = False,
+    keep_waters: bool = False,
     separate_hetgens: bool = False,
     zinc: bool = True,
-    terminals: bool = False,
+    keep_terminals: bool = True,
     obabel: str | None = shutil.which("obabel"),
     ph: float = 7.4,
 ):
@@ -204,29 +203,29 @@ def ready(
         Input .pdb or .cif filename.
     ligand: str
         Ligand residue name
-    waters: bool
+    keep_waters: bool
         Keep waters or not
     separate_hetgens: bool
         Separate chains for hetgens (Zn, ligand, ...)
     zinc: bool
         Handle zinc related issue
-    terminals: bool
-        Add missing residues at N/C-terminals
+    keep_terminals: bool
+        Keep input N/C-terminals or add missing residues at N/C-terminals
     obabel: str
         Path to the obabel executable
     ph: float
         Target pH for protonation
     """
-    mdready.complex(
-        filename=filename,
-        ligand_resname=ligand,
-        waters=waters,
-        separate_hetgens=separate_hetgens,
-        zinc=zinc,
-        terminals=terminals,
-        obabel=obabel,
-        target_ph=ph,
-    )
+    ReadyPipeline(
+        in_file= filename,
+        ligand_resname= ligand,
+        keep_waters= keep_waters,
+        separate_hetgens= separate_hetgens,
+        zinc= zinc,
+        keep_terminals= keep_terminals,
+        obabel= obabel,
+        target_ph= ph,
+    ).run()
 
 
 @app.command
@@ -234,8 +233,6 @@ def relax(
     filename: str,
     /,
     *,
-    smiles: str = "",
-    ligand: str = "",
     charge: str = "nagl",
     ff_ligand: str = "openff-2.2.1.offxml",
     ff_protein: str = "amber/protein.ff14SB.xml",
@@ -278,28 +275,10 @@ def relax(
     devices: str
         GPU devices for the simulation (e.g., '0', '0,1')
     """
-    if ligand:
-        p = Path(filename)
-        prefix = p.name.removesuffix("".join(p.suffixes))
-        upstream_prefix = prefix.replace('_complex', '')
-        smi_files = list(Path.cwd().glob(f"{upstream_prefix}_{ligand}.smi"))
-        assert len(smi_files) == 1, f"more than one .smi files found: {smi_files}. try --smiles instead"
-        smi_file = smi_files[0]
-        smiles = Path(smi_file).read_text().splitlines()[0].strip()
-        print(f"reading SMILES from {smi_file}")
-
-    if smiles:
-        assert Chem.MolFromSmiles(smiles) is not None, f"Invalid SMILES string: {smiles}"
-
     vc = ValidComplex(filename)
-
-    if smiles:
-        vc.fix_ligand(smiles)
-
     vc.assign_ligand_charges(partial_charge_method=charge)
     # if we use 'import' for ligand charges, ligand chain id and residue number are unknown and will be
     # set to 'UNK' and '0', respectively.
-
     vc.build(ff_ligand=ff_ligand, ff_protein=ff_protein, solvent=solvent, posres=posres)
     em = Relax(
         vc,
