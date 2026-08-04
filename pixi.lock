@@ -3218,8 +3218,8 @@ packages:
   timestamp: 1733255681319
 - pypi: ./
   name: mdworks
-  version: 0.26.2
-  sha256: f3d90b98a379769223c3d20230f7dd89281fd55403efc368476a5a074694103a
+  version: 0.27.0
+  sha256: 3799a1c5e24183964099228b3811cabd7269dcd3d9acaf968ef6d0f70d121e50
   requires_dist:
   - gemmi>=0.7.5,<0.8
   - cyclopts>=4.22.0,<5

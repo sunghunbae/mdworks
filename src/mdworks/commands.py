@@ -19,6 +19,7 @@ def _get_version() -> str:
 
 # Cyclopts ships a built-in --version handler, so there's no need for a
 # manual version_callback / @app.callback() the way Typer required.
+
 app = cyclopts.App(name="mdworks", help="mdworks", version=_get_version)
 
 # def command(posistional_only, /, standard(both), *, key_words_only):
@@ -155,19 +156,19 @@ def reorder(filename: str, /, *, tag: str = 'ord'):
 
 
 @app.command
-def rename(filename: str, chain_map: str, /, *, tag: str = 'ren'):
-    """Rename chain id(s)
+def rename(filename: str, subs: str, /, *, tag: str = 'ren'):
+    """Rename chain id(s) and residue(s)
 
     Parameters
     ----------
     filename: str
         Input .pdb or .cif filename.
-    chain_map: str
-        Chain id map. Ex. A:B,B:C,D:C
+    subs: str
+        Rename chain id/residues. ex. A/B,B/C (A->B, B->C), A:501/B:1,A:502/B:2 (A:501 -> B:501)
     tag: str
         Output tag
     """
-    Editor.load(filename).rename_chains(chain_map=chain_map).write(tag=tag)
+    Editor.load(filename).rename(subs= subs).write(tag=tag)
 
 
 @app.command

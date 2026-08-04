@@ -314,9 +314,9 @@ class Editor(LigandFixer):
         """Write structure to a file"""
         if path is None:
             if compress:
-                outfile_path = Path(f'{self.prefix}_{tag}.{format}')
-            else:
                 outfile_path = Path(f'{self.prefix}_{tag}.{format}.gz')
+            else:
+                outfile_path = Path(f'{self.prefix}_{tag}.{format}')
 
         else:
             outfile_path = Path(path)
@@ -529,6 +529,10 @@ class Editor(LigandFixer):
         return chain
 
 
+    def _get_residue(self, chain_id: str, seqid: str) -> gemmi.Residue:
+        return self.model.sole_residue(chain_id, gemmi.SeqId(str(seqid)))
+
+
     @staticmethod
     def _chain_id_order(char):
         if char.isupper():
@@ -685,6 +689,41 @@ class Editor(LigandFixer):
         return parsed_specs
 
 
+    def rename(self, subs: str) -> "Editor":
+        """Parse chain id mapping expressions
+
+        Args:
+            spec_string (str): example - "A/B,B/C", "A:10/A:100"
+        """
+        # pattern = r"^(?P<old_chain>[A-Za-z0-9]+):(?P<new_chain>[A-Za-z0-9]+)$"
+        pattern = r"^(?P<chain_id>[A-Za-z0-9]+)(?::(?P<seqid>\d+))?$"
+        for sub_spec_string in subs.split(","):
+            source, target = sub_spec_string.split("/")
+            source_match = re.match(pattern, source)
+            target_match = re.match(pattern, target)
+            s = source_match.groupdict()
+            source_chain_id = s.get('chain_id')
+            source_seqid = s.get('seqid')
+            t = target_match.groupdict()
+            target_chain_id = t.get('chain_id')
+            target_seqid = t.get('seqid')
+
+            print(f'{source_chain_id}-{source_seqid}-{target_chain_id}-{target_seqid}')
+
+            if source_chain_id and target_chain_id:
+                if source_chain_id == target_chain_id and source_seqid and target_seqid:
+                    self.rename_residue(source_chain_id, source_seqid, target_seqid)
+                else:
+                    self.rename_chain(source_chain_id, target_chain_id)
+
+        return self
+
+
+    def rename_residue(self, chain_id: str, old_seqid: str, new_seqid: str) -> "Editor":
+        residue = self._get_residue(chain_id, old_seqid)
+        residue.seqid = gemmi.SeqId(str(new_seqid))
+        return self
+    
     def rename_chain(self, old_id: str, new_id: str) -> "Editor":
         chain = self._get_chain(old_id)
         chain.name = new_id
