@@ -46,7 +46,7 @@ class LigandFixer:
         self.max_displacement: float = max_displacement
         self.k: float = k
         self.max_iter: int = max_iter
-
+         
 
     def _ligand_convert_pdb_to_smiles(self, obabel: str = shutil.which("obabel")) -> None:
         pdbfile = f"{self.prefix}_{self.mol_resname}.pdb"
@@ -307,7 +307,7 @@ class Editor(LigandFixer):
     def write(self, 
               path: str | Path | None = None, 
               minimal: bool = False,
-              format: str = 'cif',
+              format: str = 'cif', # cif | pdb
               tag: str = '', 
               split: bool = False,
               compress: bool = True) -> "Editor":
@@ -334,12 +334,12 @@ class Editor(LigandFixer):
                         f.write(doc.as_string())
                 else:
                     doc.write_file(outfile)
-            else:
+            elif format == 'pdb':
                 if compress:
                     with gzip.open(outfile, "wt", encoding="utf-8") as f:
                         f.write(self.structure.write_pdb_string())
                 else:
-                    self.structure.write_pdb(outfile)
+                    self.structure.write_pdb(outfile)                
             logger.info(f"write to {outfile}")
         else:
             # Note: tag is ignored
@@ -371,7 +371,7 @@ class Editor(LigandFixer):
                             f.write(doc.as_string())
                     else:
                         doc.write_file(outfile)
-                else:
+                elif format == 'pdb':
                     if compress:
                         with gzip.open(outfile, "wt", encoding="utf-8") as f:
                             f.write(doc.as_string())
@@ -695,7 +695,6 @@ class Editor(LigandFixer):
         Args:
             spec_string (str): example - "A/B,B/C", "A:10/A:100"
         """
-        # pattern = r"^(?P<old_chain>[A-Za-z0-9]+):(?P<new_chain>[A-Za-z0-9]+)$"
         pattern = r"^(?P<chain_id>[A-Za-z0-9]+)(?::(?P<seqid>\d+))?$"
         for sub_spec_string in subs.split(","):
             source, target = sub_spec_string.split("/")
@@ -707,15 +706,11 @@ class Editor(LigandFixer):
             t = target_match.groupdict()
             target_chain_id = t.get('chain_id')
             target_seqid = t.get('seqid')
-
-            print(f'{source_chain_id}-{source_seqid}-{target_chain_id}-{target_seqid}')
-
             if source_chain_id and target_chain_id:
                 if source_chain_id == target_chain_id and source_seqid and target_seqid:
                     self.rename_residue(source_chain_id, source_seqid, target_seqid)
                 else:
                     self.rename_chain(source_chain_id, target_chain_id)
-
         return self
 
 
@@ -848,7 +843,6 @@ class Editor(LigandFixer):
         self._ligand_copy_positions()
         self._ligand_optimize(save=True)
         return self
-
 
     # ------------------------------------------------------------------ #
     # Introspection

@@ -1,15 +1,9 @@
 import shutil
 import cyclopts
-
-from pathlib import Path
-
 import mdworks.mmcif as mmcif
 
 from mdworks import Editor, ReadyPipeline, ValidComplex 
 from mdworks.protocol import Relax, Equilibrium, Desmond, Production
-
-from rdkit import Chem
-from Bio import Align
 
 
 def _get_version() -> str:
@@ -25,7 +19,7 @@ app = cyclopts.App(name="mdworks", help="mdworks", version=_get_version)
 # def command(posistional_only, /, standard(both), *, key_words_only):
 
 @app.command
-def mmcifinfo(filename: str, /):
+def cifinfo(filename: str, /):
     """Get information from mmCIF
 
     Parameters
@@ -37,7 +31,7 @@ def mmcifinfo(filename: str, /):
 
 
 @app.command
-def mmcif2seq(filename: str, /):
+def cif2seq(filename: str, /):
     """Get missing residue(s) and sequence from mmCIF
 
     - Full sequence
@@ -48,6 +42,8 @@ def mmcif2seq(filename: str, /):
     filename: str
         Input .cif filename.
     """
+    from Bio import Align
+
     coor_seq = mmcif.get_residue_poly_sequences(filename)
     auth_seq = mmcif.get_entity_poly_sequences(filename)
 
@@ -72,7 +68,7 @@ def mmcif2seq(filename: str, /):
 
 
 @app.command
-def mmcif2pdb(filename: str, /):
+def cif2pdb(filename: str, /):
     """Convert mmCIF to PDB
 
     Parameters
@@ -85,7 +81,7 @@ def mmcif2pdb(filename: str, /):
 
 
 @app.command
-def pdb2mmcif(filename: str, /):
+def pdb2cif(filename: str, /):
     """Convert PDB to mmCIF
 
     Parameters
@@ -107,20 +103,6 @@ def peek(filename: str, /):
         Input .pdb or .cif filename.
     """
     Editor.load(filename).summary()
-
-
-@app.command
-def pdb2smiles(filename: str, /, *, obabel: str = shutil.which("obabel")):
-    """SMILES from a ligand .pdb file
-
-    Parameters
-    ----------
-    filename: str
-        Input ligand .pdb
-    obabel: str
-        Path to the obabel executable
-    """
-    Editor.pdb_to_smiles(filename, obabel)
 
 
 @app.command
@@ -164,7 +146,7 @@ def rename(filename: str, subs: str, /, *, tag: str = 'ren'):
     filename: str
         Input .pdb or .cif filename.
     subs: str
-        Rename chain id/residues. ex. A/B,B/C (A->B, B->C), A:501/B:1,A:502/B:2 (A:501 -> B:501)
+        Rename chain id or residues seqid. ex. A/B,B/C (A->B, B->C), A:1/A:100 (A:1 -> A:100)
     tag: str
         Output tag
     """
@@ -196,7 +178,7 @@ def ready(
     obabel: str | None = shutil.which("obabel"),
     ph: float = 7.4,
 ):
-    """Get system ready for MD
+    """Ready the structure for relax
 
     Parameters
     ----------
@@ -245,7 +227,7 @@ def relax(
     platform: str = "CUDA",
     devices: str = "0",
 ):
-    """Build an implicit solvent system and run restrained energy minimization
+    """Relax the readied system by restrained energy minimization in implicit solvent
 
     Parameters
     ----------
@@ -256,7 +238,7 @@ def relax(
     ligand: str
         Ligand residue name
     charge: str
-        Partial charge method for ligand [am1bcc/gasteiger/mmff94/mmff94s/nagl].
+        Partial charge method for ligand [nagl/am1bcc/gasteiger/mmff94/mmff94s].
     ff_ligand: str
         Force field for ligand
     ff_protein: str
@@ -297,8 +279,7 @@ def build(
     filename: str,
     /,
     *,
-    smiles: str = "",
-    ligand: str = "",
+    charge: str = "nagl",
     ff_ligand: str = "openff-2.2.1.offxml",
     ff_protein: str = "amber/protein.ff14SB.xml",
     ff_water: str = "amber/tip3p_standard.xml",
@@ -308,18 +289,16 @@ def build(
     positive_ion: str = "Na+",
     negative_ion: str = "Cl-",
     h_mass_factor: float = 3.0,
-    partial_charge_method: str = "nagl",
+    
 ):
-    """Build MD system with implicit/explicit water box
+    """Build a MD system with explicit/implicit water box
 
     Parameters
     ----------
     filename: str
         Input .pdb or .cif filename
-    smiles: str
-        Ligand SMILES
-    ligand: str
-        Ligand residue name
+    charge: str
+        Partial charge method for ligand [nagl/am1bcc/gasteiger/mmff94/mmff94s].
     ff_ligand: str
         Force field for ligand
     ff_protein: str
@@ -338,33 +317,10 @@ def build(
         Negative ion type.
     h_mass_factor: float
         Hydrogen mass factor.
-    partial_charge_method: str
-        Partial charge method for ligand [am1bcc/gasteiger/mmff94/mmff94s/nagl].
-    """
-    if ligand:
-        p = Path(filename)
-        prefix = p.name.removesuffix("".join(p.suffixes))
-        upstream_prefix = prefix.replace('_complex', '')
-        smi_files = list(Path.cwd().glob(f"{upstream_prefix}_{ligand}.smi"))
-        assert len(smi_files) == 1, "more than one .smi files found. use --smiles instead"
-        smi_file = smi_files[0]
-        smiles = Path(smi_files[0]).read_text().splitlines()[0].strip()
-        print(f"reading SMILES from {smi_file}")
-
-    if smiles:
-        assert Chem.MolFromSmiles(smiles) is not None, f"Invalid SMILES string: {smiles}"
+    """    
 
     vc = ValidComplex(filename)
-
-    if smiles:
-        vc.fix_ligand(smiles)
-
-    # # if _ligand.sdf file exists, bypass recomuting AM1-BCC charges and fixing ligand
-    # ligand_sdf_path = vc.workdir / f"{vc.prefix}_ligand.sdf"
-    # if ligand_sdf_path.exists():
-    #     vc.load_ligand_charges(filename= ligand_sdf_path.as_posix())
-
-    vc.assign_ligand_charges(partial_charge_method=partial_charge_method)
+    vc.assign_ligand_charges(partial_charge_method= charge)
     vc.save_protein()
     vc.build(
         ff_ligand=ff_ligand,
