@@ -136,8 +136,16 @@ class ValidComplex(SimFileIO):
         assert len(ligand_sdf_files) == 1, "more than one ligand SDF files exist"
         self.ligand_sdf = str(ligand_sdf_files[0])
         self.ligand_resname = self.ligand_sdf.replace(".sdf", "").replace(f"{upstream_prefix}_", "")
-        
-        self.off_mol_list = Molecule.from_file(self.ligand_sdf, file_format="sdf")
+        logger.info(f"ligand sdf= {self.ligand_sdf}") 
+        logger.info(f"ligand resname= {self.ligand_resname}") 
+
+        molecule = Molecule.from_file(self.ligand_sdf, file_format="sdf")
+
+        if isinstance(molecule, list):
+            self.off_mol_list = molecule
+        elif isinstance(molecule, Molecule):
+            self.off_mol_list = [ molecule ]
+
         if len(self.off_mol_list) > 1:
             logger.info(f"  multiple molecules found in ligand: {self.ligand_resname} {len(self.off_mol_list)}")
 

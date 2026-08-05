@@ -1,6 +1,6 @@
 [project]
 name = "mdworks"
-version = "0.27.0"
+version = "0.27.1"
 description = "Streamlines preparation and equilibration of molecular complex for MD simulations"
 readme = "README.md"
 authors = [{name = "Sung-Hun Bae", email = "sunghun.bae@gmail.com"}]
