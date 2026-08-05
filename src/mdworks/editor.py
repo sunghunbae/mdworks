@@ -859,12 +859,12 @@ class Editor(LigandFixer):
         for model_idx, model in enumerate(self.structure, start=1):
             lines.append(f"model {model_idx}")
             for chain in model:
-                residues = [f"{res.name:>3} {res.seqid.num:>4}" for res in chain]
+                residues = [f"{res.name:>5} {res.seqid.num:>4}" for res in chain]
                 n = len(residues)
                 if n == 1:
-                    lines.append(f"  chain {chain.name} ({n:>3} residues): {residues[0]:<8}")
+                    lines.append(f"  chain {chain.name:<4} ({n:>3} residues): {residues[0]:<8}")
                 else:
-                    lines.append(f"  chain {chain.name} ({n:>3} residues): {residues[0]:<8} ... {residues[-1]}")
+                    lines.append(f"  chain {chain.name:<4} ({n:>3} residues): {residues[0]:<8} ... {residues[-1]}")
                 # non standard residues
                 for residue in chain:
                     if residue.is_water():
@@ -873,6 +873,7 @@ class Editor(LigandFixer):
                     chem_comp = gemmi.find_tabulated_residue(residue.name)
                     # check if the residue name is missing or explicitly non-standard
                     if chem_comp is None or not chem_comp.is_standard():
-                        lines.append(f"    non-standard residue  {residue.name:>3} {residue.seqid.num:>4}")
+                        na = len(residue)
+                        lines.append(f"       non-standard residue  {residue.name:>5} {residue.seqid.num:>4} ({na} atoms)")
 
         print("\n".join(lines))
