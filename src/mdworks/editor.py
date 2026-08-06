@@ -304,6 +304,13 @@ class Editor(LigandFixer):
                 logger.info(f"  subchain {subchain}")
 
 
+    def remove_altloc(self) -> "Editor":
+        # This mutates the structure object, keeping 'A' (or first) 
+        # and setting all remaining altloc characters to blank
+        self.structure.remove_alternative_conformations()
+        return self
+
+
     def write(self, 
               path: str | Path | None = None, 
               minimal: bool = False,
@@ -337,7 +344,7 @@ class Editor(LigandFixer):
             elif format == 'pdb':
                 if compress:
                     with gzip.open(outfile, "wt", encoding="utf-8") as f:
-                        f.write(self.structure.write_pdb_string())
+                        f.write(self.structure.make_pdb_string())
                 else:
                     self.structure.write_pdb(outfile)                
             logger.info(f"write to {outfile}")
@@ -399,7 +406,7 @@ class Editor(LigandFixer):
             Args:
                 expr (str): example - "A:10-30,A:100-120,B:1-50,C:1,D,UNL"
             """
-            pattern = r"^(?:(?P<chain>[A-Za-z0-9]+):)?(?P<resname_or_resseq>[A-Za-z0-9]+)(?:-(?P<resseq_end>[0-9]+))?$"
+            pattern = r"^(?:(?P<chain>[A-Za-z0-9-]+):)?(?P<resname_or_resseq>[A-Za-z0-9]+)(?:-(?P<resseq_end>[0-9]+))?$"
     
             self.sel = gemmi.Selection()
             self._reset_residue_flag()
@@ -415,10 +422,10 @@ class Editor(LigandFixer):
                     res_start = spec.get('resname_or_resseq')
                     res_end = spec.get('resseq_end')
                     if res_start.isdigit():
-                        if res_end.isdigit():
+                        if res_end and res_end.isdigit():
                             cid = f'//{chain_id}/{res_start}-{res_end}'
                         else:
-                            cid = f'//{chain_id}/{res_start}'
+                            cid = f'//{chain_id}/{res_start}'    
                     else:
                         cid = f'//{chain_id}/({res_start})'
                     selections.append(gemmi.Selection(cid))
@@ -460,7 +467,7 @@ class Editor(LigandFixer):
 
         return self
 
-    
+
     def merge(self, other: Editor) -> "Editor":
         for chain in other.model:
             self.model.add_chain(chain.clone())

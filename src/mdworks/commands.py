@@ -105,6 +105,7 @@ def peek(filename: str, /):
     Editor.load(filename).summary()
 
 
+
 @app.command
 def delete(filename: str, selection: str = "", /, *, tag: str = 'del', invert: bool = False):
     """Delete chain(s) and residue(s)
@@ -121,6 +122,8 @@ def delete(filename: str, selection: str = "", /, *, tag: str = 'del', invert: b
         Invert selection
     """
     Editor.load(filename).select(expr=selection).delete(invert=invert).write(tag=tag,compress=True)
+
+
 
 
 @app.command
@@ -171,6 +174,7 @@ def ready(
     /,
     *,
     ligand: str = "",
+    remove_altloc: bool = True,
     keep_waters: bool = False,
     separate_hetgens: bool = False,
     zinc: bool = True,
@@ -186,6 +190,8 @@ def ready(
         Input .pdb or .cif filename.
     ligand: str
         Ligand residue name
+    remove_altloc: bool
+        Remove alternative conformation (altloc)
     keep_waters: bool
         Keep waters or not
     separate_hetgens: bool
@@ -202,6 +208,7 @@ def ready(
     ReadyPipeline(
         in_file= filename,
         ligand_resname= ligand,
+        remove_altloc= remove_altloc,
         keep_waters= keep_waters,
         separate_hetgens= separate_hetgens,
         zinc= zinc,

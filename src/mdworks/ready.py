@@ -20,6 +20,7 @@ class ReadyPipeline:
     def __init__(self, 
                  in_file: str | Path,
                  ligand_resname: str | None = None,
+                 remove_altloc: bool = True,
                  keep_waters: bool = False,
                  separate_hetgens: bool = False,
                  zinc: bool = True,
@@ -33,6 +34,7 @@ class ReadyPipeline:
         assert in_path.exists()
 
         self.ligand_resname : str = ligand_resname
+        self.remove_altloc : bool = remove_altloc
         self.keep_waters : bool = keep_waters
         self.separate_hetgens : bool = separate_hetgens
         self.zinc : bool = zinc
@@ -71,6 +73,9 @@ class ReadyPipeline:
         # _atom_site.auth_asym_id is changed to standard chain id,
         # but _atom_site.label_asym_id is not changed, so we need to update it to match the new chain id.
         # st = st.update_label_asym_id()
+
+        if self.remove_altloc:
+            self.editor = self.editor.remove_alternative_conformations()
 
         if not self.keep_waters:
             self.editor = self.editor.remove_waters()
