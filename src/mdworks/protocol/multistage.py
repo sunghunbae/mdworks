@@ -287,7 +287,7 @@ class MultiStage(SimFileIO):
                 "DeterministicForces" : "true",
                 }
         else:
-            self.platform = Platform.getPlatform('CPU')
+            self.platform = Platform.getPlatform('Reference')
         logger.info(f"OpenMM {version('openmm')} platform= {self.platform.getName()} devices= {devices}")
 
 

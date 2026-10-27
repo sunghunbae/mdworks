@@ -173,7 +173,8 @@ def ready(
     filename: str,
     /,
     *,
-    ligand: str = "",
+    ligand_name: str = "",
+    ligand_smiles: str = "",
     remove_altloc: bool = True,
     keep_waters: bool = False,
     separate_hetgens: bool = False,
@@ -188,8 +189,10 @@ def ready(
     ----------
     filename: str
         Input .pdb or .cif filename.
-    ligand: str
+    ligand_name: str
         Ligand residue name
+    ligand_smiles: str
+        Ligand SMILES
     remove_altloc: bool
         Remove alternative conformation (altloc)
     keep_waters: bool
@@ -207,7 +210,8 @@ def ready(
     """
     ReadyPipeline(
         in_file= filename,
-        ligand_resname= ligand,
+        ligand_resname= ligand_name,
+        ligand_smiles= ligand_smiles,
         remove_altloc= remove_altloc,
         keep_waters= keep_waters,
         separate_hetgens= separate_hetgens,
@@ -234,7 +238,7 @@ def relax(
     platform: str = "CUDA",
     devices: str = "0",
 ):
-    """Relax the readied system by restrained energy minimization in implicit solvent
+    """Build and relax valid complex system by restrained energy minimization in implicit solvent
 
     Parameters
     ----------
@@ -328,7 +332,7 @@ def build(
 
     vc = ValidComplex(filename)
     vc.assign_ligand_charges(partial_charge_method= charge)
-    vc.save_protein()
+    # vc.save_protein()
     vc.build(
         ff_ligand=ff_ligand,
         ff_protein=ff_protein,

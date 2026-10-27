@@ -20,6 +20,7 @@ class ReadyPipeline:
     def __init__(self, 
                  in_file: str | Path,
                  ligand_resname: str | None = None,
+                 ligand_smiles: str | None = None,
                  remove_altloc: bool = True,
                  keep_waters: bool = False,
                  separate_hetgens: bool = False,
@@ -34,6 +35,7 @@ class ReadyPipeline:
         assert in_path.exists()
 
         self.ligand_resname : str = ligand_resname
+        self.ligand_smiles : str | None = ligand_smiles
         self.remove_altloc : bool = remove_altloc
         self.keep_waters : bool = keep_waters
         self.separate_hetgens : bool = separate_hetgens
@@ -89,8 +91,11 @@ class ReadyPipeline:
         if self.ligand_resname and self.obabel:
             logger.info(f"Step 1 - Gemmi extracting ligand {self.ligand_resname} ...")
             self.editor = self.editor.select(expr=self.ligand_resname)
-            self.ligand = self.editor.extract().set_as_ligand(resname=self.ligand_resname)
-            self.receptor = self.editor.delete()
+            self.ligand = self.editor.extract().set_as_ligand(
+                resname=self.ligand_resname, smiles=self.ligand_smiles, obabel=self.obabel)
+            # set_as_ligand() will call LigandFixer._ligand_convert_pdb_to_smiles()
+            # to fix the ligand, and will save the fixed ligand to .pdb and .smi files
+            self.receptor = self.editor.delete() # remaining receptor after ligand extraction
         else:
             self.receptor = self.editor
             

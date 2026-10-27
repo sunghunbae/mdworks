@@ -48,33 +48,81 @@ class LigandFixer:
         self.max_iter: int = max_iter
          
 
-    def _ligand_convert_pdb_to_smiles(self, obabel: str = shutil.which("obabel")) -> None:
+
+    def _ligand_convert_pdb_to_smiles(self, smiles: str = "", obabel: str = shutil.which("obabel")) -> None:
         pdbfile = f"{self.prefix}_{self.mol_resname}.pdb"
         smifile = f"{self.prefix}_{self.mol_resname}.smi"
         assert self.mol_pdb_block, "Molecule PDB block is not set"
-        try:
-            with open(pdbfile, 'w') as f:
-                f.write(self.mol_pdb_block)
+        
+        self.mol_source = Chem.MolFromPDBBlock(self.mol_pdb_block, removeHs=True, sanitize=False)
 
-            result = subprocess.run([obabel, "-ipdb", pdbfile, "-osmi"], 
-                                    capture_output=True, 
-                                    text=True, 
-                                    check=True
-                                    )
-            output = result.stdout.strip()
-            if output:
-                smiles, name = output.split(maxsplit=1) # ex. <SMILES> <Name>
-                with open(smifile, "w") as f:
-                    f.write(f"{smiles}\n")
-
+        # Determine the SMILES and Target Molecule
+        smiles = smiles.strip()
+        if smiles:
+            template_mol = Chem.MolFromSmiles(smiles)
+            if template_mol is None:
+                raise ValueError(f"Provided SMILES is invalid: {smiles}")
+            try:
+                # Parse the PDB file directly into an RDKit Mol object
+                # We keep hydrogens or remove them based on your setup (removeHs=False is safer for template matching)
+                pdb_mol = Chem.MolFromPDBBlock(self.mol_pdb_block, removeHs=False, sanitize=False)
                 self.mol_smiles = smiles
-                self.mol_target = Chem.MolFromSmiles(smiles)
-                self.mol_source = Chem.MolFromPDBBlock(self.mol_pdb_block, removeHs=True, sanitize=False)
+                self.mol_target = AllChem.AssignBondOrdersFromTemplate(template_mol, pdb_mol)
+                # Assign correct bond orders from the SMILES template to the 3D PDB coordinates
+            except ValueError as e:
+                raise ValueError(f"Could not map SMILES to PDB coordinates. Ensure atom counts/types match: {e}")
+        else:
+            try:
+                # Fallback to OpenBabel perception if no user SMILES is provided
+                result = subprocess.run(
+                    [obabel, "-ipdb", pdbfile, "-osmi"], 
+                    capture_output=True, text=True, check=True
+                )
+                output = result.stdout.strip()
+                if output:
+                    smiles = output.split(maxsplit=1)[0]
+                    self.mol_smiles = smiles
+                    self.mol_target = Chem.MolFromSmiles(smiles)
+                else:
+                    raise ValueError(f"Openbabel returned no SMILES from {pdbfile}.")
+            except subprocess.CalledProcessError as e:
+                raise ValueError(f"Openbabel failed on {pdbfile}: {e}")
 
-            else:
-                raise ValueError(f"Openbabel returned no SMILES from {pdbfile}.")
-        except subprocess.CalledProcessError as e:
-            raise ValueError(f"Openbabel failed on {pdbfile}: {e}")
+        with open(pdbfile, 'w') as f:
+            f.write(self.mol_pdb_block)
+
+        with open(smifile, "w") as f:
+                f.write(f"{self.mol_smiles}\n")
+            
+
+
+    # def _ligand_convert_pdb_to_smiles(self, obabel: str = shutil.which("obabel")) -> None:
+    #     pdbfile = f"{self.prefix}_{self.mol_resname}.pdb"
+    #     smifile = f"{self.prefix}_{self.mol_resname}.smi"
+    #     assert self.mol_pdb_block, "Molecule PDB block is not set"
+    #     try:
+    #         with open(pdbfile, 'w') as f:
+    #             f.write(self.mol_pdb_block)
+
+    #         result = subprocess.run([obabel, "-ipdb", pdbfile, "-osmi"], 
+    #                                 capture_output=True, 
+    #                                 text=True, 
+    #                                 check=True
+    #                                 )
+    #         output = result.stdout.strip()
+    #         if output:
+    #             smiles, name = output.split(maxsplit=1) # ex. <SMILES> <Name>
+    #             with open(smifile, "w") as f:
+    #                 f.write(f"{smiles}\n")
+
+    #             self.mol_smiles = smiles
+    #             self.mol_target = Chem.MolFromSmiles(smiles)
+    #             self.mol_source = Chem.MolFromPDBBlock(self.mol_pdb_block, removeHs=True, sanitize=False)
+
+    #         else:
+    #             raise ValueError(f"Openbabel returned no SMILES from {pdbfile}.")
+    #     except subprocess.CalledProcessError as e:
+    #         raise ValueError(f"Openbabel failed on {pdbfile}: {e}")
         
 
     
@@ -841,12 +889,12 @@ class Editor(LigandFixer):
         return residue_group
     
     
-    def set_as_ligand(self, resname: str, obabel: str = shutil.which("obabel")) -> "Editor":
+    def set_as_ligand(self, resname: str, smiles: str = "", obabel: str = shutil.which("obabel")) -> "Editor":
         """Set ligand name and SMILES for structure (ligand)"""
         self.is_ligand = True
         self.mol_resname = resname
         self.mol_pdb_block = self.structure.make_pdb_string()
-        self._ligand_convert_pdb_to_smiles(obabel=obabel)
+        self._ligand_convert_pdb_to_smiles(smiles=smiles, obabel=obabel)
         self._ligand_copy_positions()
         self._ligand_optimize(save=True)
         return self

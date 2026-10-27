@@ -133,21 +133,22 @@ class ValidComplex(SimFileIO):
 
         # looking for ligand SDF
         ligand_sdf_files = list(self.workdir.glob(f'{upstream_prefix}_*.sdf'))
-        assert len(ligand_sdf_files) == 1, "more than one ligand SDF files exist"
-        self.ligand_sdf = str(ligand_sdf_files[0])
-        self.ligand_resname = self.ligand_sdf.replace(".sdf", "").replace(f"{upstream_prefix}_", "")
-        logger.info(f"ligand sdf= {self.ligand_sdf}") 
-        logger.info(f"ligand resname= {self.ligand_resname}") 
+        assert len(ligand_sdf_files) <= 1, "more than one ligand SDF files exist"
+        if ligand_sdf_files:
+            self.ligand_sdf = str(ligand_sdf_files[0])
+            self.ligand_resname = self.ligand_sdf.replace(".sdf", "").replace(f"{upstream_prefix}_", "")
+            logger.info(f"ligand sdf= {self.ligand_sdf}") 
+            logger.info(f"ligand resname= {self.ligand_resname}") 
 
-        molecule = Molecule.from_file(self.ligand_sdf, file_format="sdf")
+            molecule = Molecule.from_file(self.ligand_sdf, file_format="sdf")
 
-        if isinstance(molecule, list):
-            self.off_mol_list = molecule
-        elif isinstance(molecule, Molecule):
-            self.off_mol_list = [ molecule ]
+            if isinstance(molecule, list):
+                self.off_mol_list = molecule
+            elif isinstance(molecule, Molecule):
+                self.off_mol_list = [ molecule ]
 
-        if len(self.off_mol_list) > 1:
-            logger.info(f"  multiple molecules found in ligand: {self.ligand_resname} {len(self.off_mol_list)}")
+            if len(self.off_mol_list) > 1:
+                logger.info(f"  multiple molecules found in ligand: {self.ligand_resname} {len(self.off_mol_list)}")
 
 
     # def _sort_protein_and_ligand_residues(self) -> None:
@@ -269,6 +270,9 @@ class ValidComplex(SimFileIO):
             partial_charge_method (str, optional): charge assignment method. Defaults to 'am1bcc'.
                 set 'import' to load saved charges in the sdf file.
         """
+        if not self.off_mol_list:
+            return
+
         self.off_mol = self.off_mol_list[0]
 
         logger.info(f"partial charges assigned with {partial_charge_method}")
@@ -364,12 +368,15 @@ class ValidComplex(SimFileIO):
         # Remove ligand
         off_mol_res = []
         off_mol_res_info = []
-        for res in self.modeller.topology.residues():
-            if res.name == self.ligand_resname:
-                off_mol_res_info.append((res.chain.id, res.name, res.id))
-                off_mol_res.append(res)
-
-        self.modeller.delete(off_mol_res)
+        try:
+            assert self.ligand_resname is not None
+            for res in self.modeller.topology.residues():
+                if res.name == self.ligand_resname:
+                    off_mol_res_info.append((res.chain.id, res.name, res.id))
+                    off_mol_res.append(res)
+            self.modeller.delete(off_mol_res)
+        except:
+            logger.info(f"No ligand found in the system.")
 
         if self.off_mol_list:
             logger.info(f"adding ligand(s) to system..")
